@@ -1,3 +1,5 @@
+[![Public API Python SDK](banner.png)](https://public.com)
+
 # Public API Python SDK
 
 A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, and account management.
