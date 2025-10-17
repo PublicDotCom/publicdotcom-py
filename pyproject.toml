@@ -45,8 +45,8 @@ dev = [
 
 [project.urls]
 Homepage = "https://public.com/api/docs"
-Repository = "https://github.com/matadorapp/ext-api-python-sdk"
-Issues = "https://github.com/matadorapp/ext-api-python-sdk/issues"
+Repository = "https://github.com/PublicDotCom/publicdotcom-py"
+Issues = "https://github.com/PublicDotCom/publicdotcom-py/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
