@@ -1,5 +1,9 @@
 [![Public API Python SDK](banner.png)](https://public.com)
 
+![Version](https://img.shields.io/badge/version-0.1.0-brightgreen?style=flat-square)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)
+![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
+
 # Public API Python SDK
 
 A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, and account management.
