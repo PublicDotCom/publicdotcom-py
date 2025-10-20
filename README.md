@@ -1,4 +1,4 @@
-[![Public API Python SDK](banner.png)](https://public.com)
+[![Public API Python SDK](banner.png)](https://public.com/api)
 
 ![Version](https://img.shields.io/badge/version-0.1.0-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)
