@@ -120,9 +120,12 @@ def main() -> None:
         print(f"Order placed: {new_order.order_id}\n\n")
 
         # get order status and details
-        order_status = new_order.get_status()
-        print(f"Order status: {order_status}\n\n")
-        order_details = new_order.get_details()
+        order_response = public_api_client.get_order(
+            order_id=new_order.order_id,
+            # account_id="YOUR_ACCOUNT"  # optional if default set
+        )
+        print(f"Order status: {order_response.status}\n\n")
+        order_details = order_response
         print(f"Order details: {order_details}\n\n")
 
         # get portfolio
