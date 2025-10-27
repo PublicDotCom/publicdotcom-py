@@ -386,7 +386,7 @@ multileg_order = MultilegOrderRequest(
     limit_price=Decimal("3.45"),
     expiration=OrderExpirationRequest(
         time_in_force=TimeInForce.GTD,
-        expiration_time=datetime(2025, 10, 31)
+        expiration_time=datetime(2025, 10, 31, tzinfo=timezone.utc)
     ),
     legs=[
         OrderLegRequest(
