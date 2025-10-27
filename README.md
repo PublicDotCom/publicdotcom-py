@@ -91,6 +91,8 @@ The `default_account_number` configuration option simplifies API calls by elimin
 
 ```python
 # With default_account_number configured
+from public_api_sdk import OrderInstrument, InstrumentType
+
 config = PublicApiClientConfiguration(
     default_account_number="INSERT_ACCOUNT_NUMBER"
 )
@@ -100,9 +102,14 @@ client = PublicApiClient(
         config=config
     )
 
+instruments = [
+    OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+    OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY)
+]
+
 # No need to specify account_id
-portfolio = client.get_portfolio()  # Uses default account number"
-quotes = client.get_quotes([...])   # Uses default account number
+portfolio = client.get_portfolio()  # Uses default account number
+quotes = client.get_quotes(instruments)   # Uses default account number
 
 # You can still override with a specific account
 other_portfolio = client.get_portfolio(account_id="DIFFERENT123")  # Uses "DIFFERENT123"
@@ -119,7 +126,7 @@ client = PublicApiClient(
 
 # Must specify account_id for each call
 portfolio = client.get_portfolio(account_id="INSERT_ACCOUNT_NUMBER")  # Required
-quotes = client.get_quotes([...], account_id="INSERT_ACCOUNT_NUMBER")  # Required
+quotes = client.get_quotes(instruments, account_id="INSERT_ACCOUNT_NUMBER")  # Required
 ```
 
 This is particularly useful when working with a single account, as it reduces code repetition and makes the API calls cleaner.
@@ -141,7 +148,7 @@ for account in accounts_response.accounts:
 Get a snapshot of account portfolio including positions, equity, and buying power.
 
 ```python
-portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT")  # account_id optional if default set
+portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT_NUMBER")  # account_id optional if default set
 print(f"Total equity: {portfolio.equity}")
 print(f"Buying power: {portfolio.buying_power}")
 ```
@@ -174,7 +181,7 @@ quotes = client.get_quotes([
 ])
 
 for quote in quotes:
-    print(f"{quote.symbol}: ${quote.last_price}")
+    print(f"{quote.instrument.symbol}: ${quote.last}")
 ```
 
 #### Get Instrument Details
@@ -186,7 +193,13 @@ instrument = client.get_instrument(
     symbol="AAPL",
     instrument_type=InstrumentType.EQUITY
 )
-print(f"Instrument: {instrument.symbol}")
+
+print(f"Symbol: {instrument.instrument.symbol}")
+print(f"Type: {instrument.instrument.type}")
+print(f"Trading: {instrument.trading}")
+print(f"Fractional Trading: {instrument.fractional_trading}")
+print(f"Option Trading: {instrument.option_trading}")
+print(f"Option Spread Trading: {instrument.option_spread_trading}")
 ```
 
 #### Get All Instruments
@@ -215,7 +228,10 @@ from public_api_sdk import OptionExpirationsRequest, OrderInstrument, Instrument
 
 expirations = client.get_option_expirations(
     OptionExpirationsRequest(
-        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
+        instrument=OrderInstrument(
+            symbol="AAPL", 
+            type=InstrumentType.EQUITY
+        )
     )
 )
 print(f"Available expirations: {expirations.expirations}")
@@ -251,12 +267,12 @@ print(f"Delta: {greeks.delta}, Gamma: {greeks.gamma}")
 
 #### Preflight Calculations
 
-##### Single-Leg Preflight
+##### Equity Preflight
 
-Calculate estimated costs and impact before placing a single-leg order.
+Calculate estimated costs and impact before placing an equity order.
 
 ```python
-from public_api_sdk import PreflightRequest, OrderSide, OrderType, TimeInForce
+from public_api_sdk import PreflightRequest, OrderSide, OrderType, TimeInForce, OrderInstrument, InstrumentType
 from public_api_sdk import OrderExpirationRequest
 from decimal import Decimal
 
@@ -279,33 +295,23 @@ print(f"Order value: ${preflight_response.order_value}")
 Calculate estimated costs for complex multi-leg option strategies.
 
 ```python
-from public_api_sdk import PreflightMultiLegRequest, LegInstrument, LegInstrumentType
-from public_api_sdk import OrderLegRequest, OpenCloseIndicator
-from datetime import datetime
-
 preflight_multi = PreflightMultiLegRequest(
     order_type=OrderType.LIMIT,
     expiration=OrderExpirationRequest(
         time_in_force=TimeInForce.GTD,
-        expiration_time=datetime(2025, 1, 1)
+        expiration_time=datetime(2025, 12, 1, tzinfo=timezone.utc)
     ),
     quantity=1,
     limit_price=Decimal("3.45"),
     legs=[
         OrderLegRequest(
-            instrument=LegInstrument(
-                symbol="AAPL260116C00270000",
-                type=LegInstrumentType.OPTION
-            ),
+            instrument=LegInstrument(symbol="AAPL251024C00110000", type=LegInstrumentType.OPTION),
             side=OrderSide.SELL,
             open_close_indicator=OpenCloseIndicator.OPEN,
             ratio_quantity=1
         ),
         OrderLegRequest(
-            instrument=LegInstrument(
-                symbol="AAPL251017C00235000",
-                type=LegInstrumentType.OPTION
-            ),
+            instrument=LegInstrument(symbol="AAPL251024C00120000", type=LegInstrumentType.OPTION),
             side=OrderSide.BUY,
             open_close_indicator=OpenCloseIndicator.OPEN,
             ratio_quantity=1
@@ -313,7 +319,31 @@ preflight_multi = PreflightMultiLegRequest(
     ]
 )
 
+# Calculate preflight to get strategy details and costs
 preflight_result = client.perform_multi_leg_preflight_calculation(preflight_multi)
+
+# Display results
+print("\n" + "="*70)
+print(f"Strategy: {preflight_result.strategy_name}")
+print("="*70)
+
+print(f"\nOrder Details:")
+print(f"  Order Type: {preflight_multi.order_type.value}")
+print(f"  Quantity: {preflight_multi.quantity}")
+print(f"  Limit Price: ${preflight_multi.limit_price}")
+
+print(f"\nLegs:")
+for i, leg in enumerate(preflight_multi.legs, 1):
+    print(f"  {i}. {leg.side.value} {leg.instrument.symbol}")
+
+cost = float(preflight_result.estimated_cost)
+cost_label = "Debit (Cost)" if cost > 0 else "Credit"
+print(f"\nCost Analysis:")
+print(f"  {cost_label}: ${abs(cost):.2f}")
+print(f"  Commission: ${preflight_result.estimated_commission}")
+print(f"  Buying Power Required: ${preflight_result.buying_power_requirement}")
+
+print("\n" + "="*70)
 ```
 
 #### Place Orders
@@ -323,7 +353,7 @@ preflight_result = client.perform_multi_leg_preflight_calculation(preflight_mult
 Submit a single-leg equity or option order.
 
 ```python
-from public_api_sdk import OrderRequest
+from public_api_sdk import OrderRequest, OrderInstrument, InstrumentType
 import uuid
 
 order_request = OrderRequest(
@@ -345,7 +375,9 @@ print(f"Order placed with ID: {order_response.order_id}")
 Submit a multi-leg option strategy order.
 
 ```python
+from datetime import datetime, timezone
 from public_api_sdk import MultilegOrderRequest
+import uuid
 
 multileg_order = MultilegOrderRequest(
     order_id=str(uuid.uuid4()),
@@ -354,12 +386,12 @@ multileg_order = MultilegOrderRequest(
     limit_price=Decimal("3.45"),
     expiration=OrderExpirationRequest(
         time_in_force=TimeInForce.GTD,
-        expiration_time=datetime(2025, 1, 1)
+        expiration_time=datetime(2025, 10, 31, tzinfo=timezone.utc)
     ),
     legs=[
         OrderLegRequest(
             instrument=LegInstrument(
-                symbol="AAPL260116C00270000",
+                symbol="AAPL251024C00110000",
                 type=LegInstrumentType.OPTION
             ),
             side=OrderSide.SELL,
@@ -368,7 +400,7 @@ multileg_order = MultilegOrderRequest(
         ),
         OrderLegRequest(
             instrument=LegInstrument(
-                symbol="AAPL251017C00235000",
+                symbol="AAPL251024C00120000",
                 type=LegInstrumentType.OPTION
             ),
             side=OrderSide.BUY,
