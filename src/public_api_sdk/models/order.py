@@ -234,7 +234,6 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
 
     @field_serializer("quantity")
     def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
-        # Convert Decimal to string for the API
         return str(value) if value is not None else None
 
     @field_serializer("amount", "limit_price", "stop_price")
