@@ -23,9 +23,8 @@ class OrderValidationMixin:
     @field_validator("quantity")
     @classmethod
     def validate_quantity(cls, v: Optional[Decimal]) -> Optional[Decimal]:
-        if v is not None:
-            if v <= 0:
-                raise ValueError("`quantity` must be greater than 0")
+        if v is not None and v <= 0:
+            raise ValueError("`quantity` must be greater than 0")
         return v
 
     @field_validator("amount")
