@@ -35,7 +35,7 @@ def main() -> None:
         raise ValueError("API_SECRET_KEY environment variable is required")
 
     public_api_client = PublicApiClient(
-        ApiKeyAuthConfig(api_secret_key=os.environ.get("API_SECRET_KEY")),
+        ApiKeyAuthConfig(api_secret_key=api_secret_key),
         config=PublicApiClientConfiguration(
             default_account_number=os.environ.get("DEFAULT_ACCOUNT_NUMBER"),
         ),
