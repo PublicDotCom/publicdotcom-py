@@ -35,7 +35,7 @@ class PriceTriggeredOrderBot:
         client: PublicApiClient,
         symbol: str,
         target_price: Decimal,
-        order_quantity: int,
+        order_quantity: Decimal,
     ):
         self.client = client
         self.symbol = symbol
@@ -182,7 +182,7 @@ class PriceTriggeredOrderBot:
 
 SYMBOL = "AAPL"
 TARGET_PRICE = Decimal("150.00")
-ORDER_QUANTITY = 1
+ORDER_QUANTITY = Decimal("1")
 
 
 def main() -> None:

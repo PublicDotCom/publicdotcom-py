@@ -75,7 +75,7 @@ def example_subscription_with_callback() -> None:
                 order_side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
                 expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=1,
+                quantity=Decimal('1'),
                 limit_price=Decimal("150.00"),  # Low price to avoid immediate fill
             ),
         )
@@ -145,7 +145,7 @@ def example_synchronous_wait() -> None:
                 order_side=OrderSide.BUY,
                 order_type=OrderType.MARKET,
                 expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=1,
+                quantity=Decimal('1'),
             ),
         )
         print(f"Order placed: {new_order.order_id}\n")
@@ -202,7 +202,7 @@ def example_async_callback() -> None:
                 order_side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
                 expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=1,
+                quantity=Decimal('1'),
                 limit_price=Decimal("140.00"),
             ),
         )

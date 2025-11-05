@@ -93,7 +93,7 @@ def main() -> None:
             expiration=OrderExpirationRequest(
                 time_in_force=TimeInForce.DAY,
             ),
-            quantity=1,
+            quantity=Decimal(1),
             limit_price=Decimal(226.78),
         )
         preflight_response = public_api_client.perform_preflight_calculation(
@@ -113,7 +113,7 @@ def main() -> None:
                 order_side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
                 expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=1,
+                quantity=Decimal('1'),
                 limit_price=Decimal(227.12),
             ),
         )
