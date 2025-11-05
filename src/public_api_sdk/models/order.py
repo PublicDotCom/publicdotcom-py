@@ -232,7 +232,11 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
 
     @field_serializer("quantity")
     def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
-        return str(value) if value is not None else None
+        return (
+            str(value.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
+            if value is not None
+            else None
+        )
 
     @field_serializer("amount", "limit_price", "stop_price")
     def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
