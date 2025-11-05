@@ -22,7 +22,7 @@ class OrderValidationMixin:
 
     @field_validator("quantity")
     @classmethod
-    def validate_quantity(cls, v: Optional[int]) -> Optional[int]:
+    def validate_quantity(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         if v is not None and v <= 0:
             raise ValueError("`quantity` must be greater than 0")
         return v
@@ -191,11 +191,10 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
     expiration: OrderExpirationRequest = Field(
         ..., alias="expiration", description="Expiration date"
     )
-    quantity: Optional[int] = Field(
+    quantity: Optional[Decimal] = Field(
         None,
         description=(
-            "The order quantity. Used when buying/selling whole shares and when selling "
-            "fractional.\nMutually exclusive with `amount`"
+            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional (e.g, Decimal(0.12345)). Mutually exclusive with `amount`"
         ),
     )
     amount: Optional[Decimal] = Field(
@@ -232,7 +231,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
+    def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
         return str(value) if value is not None else None
 
     @field_serializer("amount", "limit_price", "stop_price")
@@ -373,11 +372,10 @@ class OrderRequest(OrderValidationMixin, BaseModel):
     expiration: OrderExpirationRequest = Field(
         ..., alias="expiration", description="Expiration date"
     )
-    quantity: Optional[int] = Field(
+    quantity: Optional[Decimal] = Field(
         None,
         description=(
-            "The order quantity. Used when buying/selling whole shares and when selling "
-            "fractional.\nMutually exclusive with `amount`"
+            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional (e.g, Decimal(0.12345)). Mutually exclusive with `amount`"
         ),
     )
 
@@ -415,7 +413,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
+    def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
         return str(value) if value is not None else None
 
     @field_serializer("amount", "limit_price", "stop_price")
