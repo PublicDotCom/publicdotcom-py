@@ -194,7 +194,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
     quantity: Optional[Decimal] = Field(
         None,
         description=(
-            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional. (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
+            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
         ),
     )
     amount: Optional[Decimal] = Field(
@@ -375,7 +375,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
     quantity: Optional[Decimal] = Field(
         None,
         description=(
-            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional. (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
+            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
         ),
     )
 
