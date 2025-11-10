@@ -101,8 +101,15 @@ class PriceTriggeredOrderBot:
                 ),
                 order_side=self.order_side,
                 order_type=OrderType.MARKET,
-                expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+                expiration=OrderExpirationRequest(
+                    time_in_force=TimeInForce.DAY,
+                    expiration_time=None
+                ),
                 quantity=self.order_quantity,
+                amount=None,  # Not needed for orders with quantity
+                limit_price=None,  # Not applicable for market orders
+                stop_price=None,  # Not applicable for market orders
+                open_close_indicator=None,  # Or a specific value if required
             )
 
             self.current_order = self.client.place_order(order_request)
