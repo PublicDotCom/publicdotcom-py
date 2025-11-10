@@ -51,7 +51,7 @@ from .subscription_manager import PriceSubscriptionManager
 from .price_stream import PriceStream
 
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 __all__ = [
     "AuthConfig",
