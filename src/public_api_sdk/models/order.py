@@ -1,5 +1,5 @@
-from datetime import datetime, timezone, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import List, Optional
 from uuid import UUID
@@ -379,7 +379,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
     quantity: Optional[Decimal] = Field(
         None,
         description=(
-            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional. (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
+            "The order quantity. Used when buying/selling whole shares (e.g., Decimal(10)) and when selling fractional (e.g., Decimal(0.12345)). Mutually exclusive with `amount`"
         ),
     )
 
