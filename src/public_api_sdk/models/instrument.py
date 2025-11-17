@@ -16,9 +16,9 @@ class Trading(str, Enum):
 class CryptoInstrumentDetails(BaseModel):
     """Details specific to crypto instruments"""
     payload_type: str = Field(..., alias="payloadType")
-    crypto_quantity_precision: int = Field(..., alias="cryptoQuantityPrecision")
-    crypto_price_precision: int = Field(..., alias="cryptoPricePrecision")
-    tradable_in_new_york: bool = Field(..., alias="tradableInNewYork")
+    crypto_quantity_precision: Optional[int] = Field(..., alias="cryptoQuantityPrecision")
+    crypto_price_precision: Optional[int] = Field(..., alias="cryptoPricePrecision")
+    tradable_in_new_york: Optional[bool] = Field(..., alias="tradableInNewYork")
 
 
 class Instrument(BaseModel):
