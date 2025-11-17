@@ -13,12 +13,25 @@ class Trading(str, Enum):
     DISABLED = "DISABLED"
 
 
+class CryptoInstrumentDetails(BaseModel):
+    """Details specific to crypto instruments"""
+    payload_type: str = Field(..., alias="payloadType")
+    crypto_quantity_precision: Optional[int] = Field(..., alias="cryptoQuantityPrecision")
+    crypto_price_precision: Optional[int] = Field(..., alias="cryptoPricePrecision")
+    tradable_in_new_york: Optional[bool] = Field(..., alias="tradableInNewYork")
+
+
 class Instrument(BaseModel):
     instrument: OrderInstrument = Field(...)
     trading: Trading = Field(...)
     fractional_trading: Trading = Field(..., alias="fractionalTrading")
     option_trading: Trading = Field(..., alias="optionTrading")
     option_spread_trading: Trading = Field(..., alias="optionSpreadTrading")
+    instrument_details: Optional[CryptoInstrumentDetails] = Field(
+        None,
+        alias="instrumentDetails",
+        description="Additional details for crypto instruments"
+    )
 
 
 class InstrumentsRequest(BaseModel):
