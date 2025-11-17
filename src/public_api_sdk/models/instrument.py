@@ -28,7 +28,7 @@ class Instrument(BaseModel):
     option_trading: Trading = Field(..., alias="optionTrading")
     option_spread_trading: Trading = Field(..., alias="optionSpreadTrading")
     instrument_details: Optional[CryptoInstrumentDetails] = Field(
-        None, 
+        None,
         alias="instrumentDetails",
         description="Additional details for crypto instruments"
     )
