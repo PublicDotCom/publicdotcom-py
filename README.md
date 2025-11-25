@@ -270,7 +270,7 @@ greeks_response = client.get_option_greeks(
     osi_symbols=["AAPL260116C00270000", "AAPL260116P00270000"]
 )
 for greek in greeks_response.greeks:
-    print(f"Delta: {greek.delta}, Gamma: {greek.gamma}")
+    print(f"Delta: {greek.greeks.delta}, Gamma: {greek.greeks.gamma}")
 ```
 
 ### Order Management
