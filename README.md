@@ -260,7 +260,7 @@ Get Greeks for a single option contract (OSI format).
 greeks = client.get_option_greek(
     osi_symbol="AAPL260116C00270000"
 )
-print(f"Delta: {greeks.delta}, Gamma: {greeks.gamma}")
+print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
 ```
 
 For multiple option symbols, use `get_option_greeks` (plural):
