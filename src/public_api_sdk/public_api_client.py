@@ -1,39 +1,39 @@
 from typing import List, Optional
 
 from .api_client import ApiClient
-from .auth_manager import AuthManager
 from .auth_config import AuthConfig
-from .subscription_manager import PriceSubscriptionManager
-from .price_stream import PriceStream
-from .order_subscription_manager import OrderSubscriptionManager
+from .auth_manager import AuthManager
 from .models import (
     AccountsResponse,
+    GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
     Instrument,
     InstrumentsRequest,
     InstrumentsResponse,
     InstrumentType,
-    OrderInstrument,
-    Quote,
-    PreflightRequest,
-    PreflightResponse,
-    PreflightMultiLegRequest,
-    PreflightMultiLegResponse,
-    Order,
-    OrderRequest,
-    OrderResponse,
     MultilegOrderRequest,
     MultilegOrderResult,
-    Portfolio,
-    OptionExpirationsRequest,
-    OptionExpirationsResponse,
+    NewOrder,
     OptionChainRequest,
     OptionChainResponse,
+    OptionExpirationsRequest,
+    OptionExpirationsResponse,
     OptionGreeks,
-    NewOrder,
+    Order,
+    OrderInstrument,
+    OrderRequest,
+    OrderResponse,
+    Portfolio,
+    PreflightMultiLegRequest,
+    PreflightMultiLegResponse,
+    PreflightRequest,
+    PreflightResponse,
+    Quote,
 )
-
+from .order_subscription_manager import OrderSubscriptionManager
+from .price_stream import PriceStream
+from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
 
@@ -277,25 +277,49 @@ class PublicApiClient:
 
     def get_option_greeks(
         self,
-        osi_option_symbol: str,
+        osi_symbols: List[str],
         account_id: Optional[str] = None,
-    ) -> OptionGreeks:
+    ) -> GreeksResponse:
         """
-        Get option greeks for a specific option symbol (OSI-normalized format)
+        Get option greeks for multiple option symbols (OSI-normalized format)
 
         Args:
-            osi_option_symbol: OSI-normalized option symbol
+            osi_symbols: List of OSI-normalized option symbols
             account_id: Account ID (optional if `default_account_number` is set)
 
         Returns:
-            Option greeks
+            GreeksResponse containing greeks for each requested symbol
         """
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
         response = self.api_client.get(
-            f"/userapigateway/option-details/{account_id}/{osi_option_symbol}/greeks"
+            f"/userapigateway/option-details/{account_id}/greeks",
+            params={"osiSymbols": osi_symbols}
         )
-        return OptionGreeks(**response)
+        return GreeksResponse(**response)
+
+    def get_option_greek(
+        self,
+        osi_symbol: str,
+        account_id: Optional[str] = None,
+    ) -> OptionGreeks:
+        """
+        Get option greeks for a single option symbol (OSI-normalized format)
+
+        Args:
+            osi_symbol: OSI-normalized option symbol
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            OptionGreeks for the requested symbol
+        """
+        greeks_response = self.get_option_greeks(
+            osi_symbols=[osi_symbol],
+            account_id=account_id
+        )
+        if not greeks_response.greeks:
+            raise ValueError(f"No greeks found for symbol: {osi_symbol}")
+        return greeks_response.greeks[0]
 
     def perform_preflight_calculation(
         self,

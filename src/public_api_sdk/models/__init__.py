@@ -17,6 +17,7 @@ from .option import (
     MultilegOrderRequest,
     MultilegOrderResult,
     OptionGreeks,
+    GreeksResponse,
 )
 from .order import (
     OrderInstrument,
@@ -87,6 +88,7 @@ __all__ = [
     "MultilegOrderRequest",
     "MultilegOrderResult",
     "OptionGreeks",
+    "GreeksResponse",
     "Portfolio",
     "SubscriptionStatus",
     "PriceChange",

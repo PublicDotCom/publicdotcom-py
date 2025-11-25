@@ -72,8 +72,8 @@ def main() -> None:
         print(f"Option chain: {option_chain}\n\n")
 
         print("Getting option greeks...")
-        option_greeks = public_api_client.get_option_greeks(
-            osi_option_symbol="AAPL260116C00270000",
+        option_greeks = public_api_client.get_option_greek(
+            osi_symbol="AAPL260116C00270000",
         )
         print(f"Option greeks: {option_greeks}\n\n")
 

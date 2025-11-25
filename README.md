@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.5-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.6-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -254,13 +254,23 @@ option_chain = client.get_option_chain(
 
 #### Get Option Greeks
 
-Get Greeks for a specific option contract (OSI format).
+Get Greeks for a single option contract (OSI format).
 
 ```python
-greeks = client.get_option_greeks(
-    osi_option_symbol="AAPL260116C00270000"
+greeks = client.get_option_greek(
+    osi_symbol="AAPL260116C00270000"
 )
-print(f"Delta: {greeks.delta}, Gamma: {greeks.gamma}")
+print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
+```
+
+For multiple option symbols, use `get_option_greeks` (plural):
+
+```python
+greeks_response = client.get_option_greeks(
+    osi_symbols=["AAPL260116C00270000", "AAPL260116P00270000"]
+)
+for greek in greeks_response.greeks:
+    print(f"Delta: {greek.greeks.delta}, Gamma: {greek.greeks.gamma}")
 ```
 
 ### Order Management

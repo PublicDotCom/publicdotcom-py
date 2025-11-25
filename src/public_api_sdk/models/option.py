@@ -355,7 +355,8 @@ class MultilegOrderResult(BaseModel):
     order_id: str = Field(..., alias="orderId")
 
 
-class OptionGreeks(BaseModel):
+class GreekValues(BaseModel):
+    """The actual Greek values for an option"""
     delta: Decimal = Field(
         ...,
         description=(
@@ -406,4 +407,24 @@ class OptionGreeks(BaseModel):
             "Implied volatility (IV) is a theoretical forecast of how volatile "
             "an underlying stock is expected to be in the future."
         ),
+    )
+
+
+class OptionGreeks(BaseModel):
+    """Greeks for a single option symbol"""
+    symbol: str = Field(
+        ...,
+        description="The OSI-normalized option symbol"
+    )
+    greeks: GreekValues = Field(
+        ...,
+        description="The Greek values for this option"
+    )
+
+
+class GreeksResponse(BaseModel):
+    """Response containing greeks for multiple option symbols"""
+    greeks: List[OptionGreeks] = Field(
+        ...,
+        description="List of greeks for each symbol in the request"
     )
