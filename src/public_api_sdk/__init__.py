@@ -81,6 +81,7 @@ __all__ = [
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
     "PreflightRequest",
+    "PreflightResponse",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",
     "MultilegOrderRequest",
