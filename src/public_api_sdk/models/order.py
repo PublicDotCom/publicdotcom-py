@@ -110,6 +110,10 @@ class OpenCloseIndicator(str, Enum):
     CLOSE = "CLOSE"
 
 
+class EquityMarketSession(str, Enum):
+    CORE = "CORE"
+    EXTENDED = "EXTENDED"
+
 class OrderExpiration(BaseModel):
     time_in_force: TimeInForce = Field(..., alias="timeInForce")
     expiration_time: Optional[datetime] = Field(None, alias="expirationTime")
@@ -219,6 +223,12 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
+        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+    )
+    equity_market_session: Optional[EquityMarketSession] = Field(
+        None,
+        validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
+        serialization_alias="equityMarketSession",
         description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
     )
 
@@ -405,6 +415,12 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
+        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+    )
+    equity_market_session: Optional[EquityMarketSession] = Field(
+        None,
+        validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
+        serialization_alias="equityMarketSession",
         description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
     )
 

@@ -31,6 +31,7 @@ from .order import (
     TimeInForce,
     PreflightRequest,
     PreflightResponse,
+    EquityMarketSession,
 )
 from .portfolio import Portfolio
 from .quote import Quote, QuoteOutcome
@@ -79,6 +80,7 @@ __all__ = [
     "QuoteOutcome",
     "PreflightRequest",
     "PreflightResponse",
+    "EquityMarketSession",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",
     "LegInstrument",

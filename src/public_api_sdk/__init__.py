@@ -34,6 +34,8 @@ from .models import (
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
     PreflightRequest,
+    PreflightResponse,
+    EquityMarketSession,
     PriceChange,
     PriceChangeCallback,
     Quote,
@@ -50,7 +52,7 @@ from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 __all__ = [
     "AuthConfig",
@@ -81,6 +83,8 @@ __all__ = [
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
     "PreflightRequest",
+    "PreflightResponse",
+    "EquityMarketSession",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",
     "MultilegOrderRequest",
