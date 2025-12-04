@@ -1,4 +1,4 @@
-from .auth_config import ApiKeyAuthConfig, AuthConfig, OAuthAuthConfig
+from .auth_config import AuthConfig, ApiKeyAuthConfig, OAuthAuthConfig
 from .exceptions import APIError, AuthenticationError, RateLimitError
 from .models import (
     Account,
@@ -8,49 +8,52 @@ from .models import (
     InstrumentsRequest,
     InstrumentsResponse,
     InstrumentType,
-    LegInstrument,
-    LegInstrumentType,
-    MultilegOrderRequest,
-    MultilegOrderResult,
-    NewOrder,
-    OpenCloseIndicator,
+    Trading,
     OptionChainRequest,
     OptionChainResponse,
     OptionExpirationsRequest,
     OptionExpirationsResponse,
-    OptionGreeks,
-    Order,
     OrderExpirationRequest,
     OrderInstrument,
-    OrderLegRequest,
+    OrderSide,
+    OrderType,
+    Order,
     OrderRequest,
     OrderResponse,
-    OrderSide,
     OrderStatus,
-    OrderSubscriptionConfig,
-    OrderType,
+    NewOrder,
     OrderUpdate,
-    Portfolio,
+    OrderSubscriptionConfig,
+    WaitTimeoutError,
+    PreflightRequest,
+    PreflightResponse,
+    EquityMarketSession,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
-    PreflightRequest,
-    PriceChange,
-    PriceChangeCallback,
+    MultilegOrderRequest,
+    MultilegOrderResult,
+    OptionGreeks,
+    Portfolio,
+    TimeInForce,
+    LegInstrument,
+    LegInstrumentType,
+    OpenCloseIndicator,
+    OrderLegRequest,
     Quote,
     QuoteOutcome,
-    Subscription,
+    PriceChange,
+    PriceChangeCallback,
     SubscriptionConfig,
-    SubscriptionInfo,
     SubscriptionStatus,
-    TimeInForce,
-    Trading,
-    WaitTimeoutError,
+    Subscription,
+    SubscriptionInfo,
 )
-from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
 from .subscription_manager import PriceSubscriptionManager
+from .price_stream import PriceStream
 
-__version__ = "0.1.6"
+
+__version__ = "0.1.7"
 
 __all__ = [
     "AuthConfig",
@@ -82,6 +85,7 @@ __all__ = [
     "WaitTimeoutError",
     "PreflightRequest",
     "PreflightResponse",
+    "EquityMarketSession",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",
     "MultilegOrderRequest",
