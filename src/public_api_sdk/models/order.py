@@ -229,7 +229,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
     )
 
     @field_serializer("order_side")
@@ -421,7 +421,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
     )
 
     @field_serializer("order_side")
