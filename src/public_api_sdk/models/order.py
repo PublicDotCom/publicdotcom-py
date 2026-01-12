@@ -421,7 +421,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED).",
     )
 
     @field_serializer("order_side")
