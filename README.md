@@ -275,6 +275,25 @@ for greek in greeks_response.greeks:
 
 ### Order Management
 
+#### Market Session Selection
+
+When placing equity orders, you can optionally specify the market session using the `equity_market_session` parameter:
+
+- `EquityMarketSession.CORE` - Trade during regular market hours (9:30 AM - 4:00 PM ET)
+- `EquityMarketSession.EXTENDED` - Trade during pre-market (4:00 AM - 9:30 AM ET) and after-hours (4:00 PM - 8:00 PM ET)
+
+```python
+from public_api_sdk import EquityMarketSession
+
+# For regular market hours
+equity_market_session=EquityMarketSession.CORE
+
+# For extended hours trading
+equity_market_session=EquityMarketSession.EXTENDED
+```
+
+This parameter is optional and applies to both preflight calculations and order placement for equity instruments.
+
 #### Preflight Calculations
 
 ##### Equity Preflight
@@ -283,7 +302,7 @@ Calculate estimated costs and impact before placing an equity order.
 
 ```python
 from public_api_sdk import PreflightRequest, OrderSide, OrderType, TimeInForce, OrderInstrument, InstrumentType
-from public_api_sdk import OrderExpirationRequest
+from public_api_sdk import OrderExpirationRequest, EquityMarketSession
 from decimal import Decimal
 
 preflight_request = PreflightRequest(
@@ -292,7 +311,8 @@ preflight_request = PreflightRequest(
     order_type=OrderType.LIMIT,
     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
     quantity=10,
-    limit_price=Decimal("227.50")
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.CORE  # Optional: CORE or EXTENDED
 )
 
 preflight_response = client.perform_preflight_calculation(preflight_request)
@@ -363,7 +383,7 @@ print("\n" + "="*70)
 Submit a single-leg equity or option order.
 
 ```python
-from public_api_sdk import OrderRequest, OrderInstrument, InstrumentType
+from public_api_sdk import OrderRequest, OrderInstrument, InstrumentType, EquityMarketSession
 import uuid
 
 order_request = OrderRequest(
@@ -373,7 +393,8 @@ order_request = OrderRequest(
     order_type=OrderType.LIMIT,
     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
     quantity=10,
-    limit_price=Decimal("227.50")
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.EXTENDED  # Optional: CORE or EXTENDED
 )
 
 order_response = client.place_order(order_request)

@@ -110,6 +110,10 @@ class OpenCloseIndicator(str, Enum):
     CLOSE = "CLOSE"
 
 
+class EquityMarketSession(str, Enum):
+    CORE = "CORE"
+    EXTENDED = "EXTENDED"
+
 class OrderExpiration(BaseModel):
     time_in_force: TimeInForce = Field(..., alias="timeInForce")
     expiration_time: Optional[datetime] = Field(None, alias="expirationTime")
@@ -220,6 +224,16 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
         description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+    )
+    equity_market_session: Optional[EquityMarketSession] = Field(
+        None,
+        validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
+        serialization_alias="equityMarketSession",
+<<<<<<< HEAD
+        description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED)",
+=======
+        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
+>>>>>>> e19bd21 (Update docs and examples)
     )
 
     @field_serializer("order_side")
@@ -406,6 +420,16 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
         description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+    )
+    equity_market_session: Optional[EquityMarketSession] = Field(
+        None,
+        validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
+        serialization_alias="equityMarketSession",
+<<<<<<< HEAD
+        description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED).",
+=======
+        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
+>>>>>>> e19bd21 (Update docs and examples)
     )
 
     @field_serializer("order_side")

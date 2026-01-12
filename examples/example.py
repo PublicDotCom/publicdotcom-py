@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from public_api_sdk import (
     AccountType,
     ApiKeyAuthConfig,
+    EquityMarketSession,
     HistoryRequest,
     InstrumentsRequest,
     InstrumentType,
@@ -95,6 +96,8 @@ def main() -> None:
             ),
             quantity=Decimal(1),
             limit_price=Decimal(226.78),
+            # Optional: specify market session for extended hours trading
+            # equity_market_session=EquityMarketSession.EXTENDED,
         )
         preflight_response = public_api_client.perform_preflight_calculation(
             preflight_request, account_id=account_id
@@ -115,6 +118,8 @@ def main() -> None:
                 expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
                 quantity=Decimal('1'),
                 limit_price=Decimal(227.12),
+                # Optional: specify market session (CORE for regular hours, EXTENDED for pre/after market)
+                # equity_market_session=EquityMarketSession.CORE,
             ),
         )
         print(f"Order placed: {new_order.order_id}\n\n")
