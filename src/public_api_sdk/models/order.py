@@ -229,11 +229,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
-<<<<<<< HEAD
         description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED)",
-=======
-        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
->>>>>>> e19bd21 (Update docs and examples)
     )
 
     @field_serializer("order_side")
@@ -425,11 +421,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
-<<<<<<< HEAD
         description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED).",
-=======
-        description="Specifies the market session for equity trading. CORE for regular market hours, EXTENDED for pre-market and after-hours trading",
->>>>>>> e19bd21 (Update docs and examples)
     )
 
     @field_serializer("order_side")
