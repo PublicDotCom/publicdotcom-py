@@ -41,6 +41,8 @@ dev = [
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
     "httpx>=0.24.0",  # for async testing
+    "responses>=0.23.0",  # for HTTP mocking
+    "freezegun>=1.2.0",  # for time-based tests
 ]
 
 [project.urls]
