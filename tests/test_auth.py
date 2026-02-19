@@ -14,9 +14,11 @@ class TestAuthManager:
         )
 
     def test_initialize_auth(self) -> None:
-        """Test auth initialization."""
-        # provider returns token successfully
-        self.auth_provider.get_access_token.return_value = "token_123"
+        """Test that the provider is stored and get_access_token is called on init."""
+        # AuthManager.__init__ calls initialize_auth() which calls get_access_token().
+        # By the time setup_method completes, get_access_token() has already been
+        # invoked once as part of construction.
+        assert self.auth_manager.auth_provider == self.auth_provider
         self.auth_provider.get_access_token.assert_called_once_with()
 
     def test_initialize_auth_oauth_no_token(self) -> None:
