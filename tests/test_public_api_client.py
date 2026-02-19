@@ -6,6 +6,7 @@ instances remain on the client object and can be configured per-test.
 """
 
 from decimal import Decimal
+from typing import Optional
 from unittest.mock import Mock, patch
 
 import pytest
@@ -29,6 +30,7 @@ from public_api_sdk.models.order import (
     OrderSide,
     OrderStatus,
     OrderType,
+    PreflightRequest,
     TimeInForce,
 )
 from public_api_sdk.models.portfolio import Portfolio
@@ -43,7 +45,7 @@ _ACCOUNT = "ACC123"
 _VALID_UUID = "550e8400-e29b-41d4-a716-446655440000"
 
 
-def _make_client(default_account: str = _ACCOUNT) -> PublicApiClient:
+def _make_client(default_account: Optional[str] = _ACCOUNT) -> PublicApiClient:
     """Return a PublicApiClient with ApiClient and AuthManager patched out."""
     with patch("public_api_sdk.public_api_client.ApiClient"), patch(
         "public_api_sdk.public_api_client.AuthManager"
@@ -426,9 +428,7 @@ class TestPerformPreflightCalculation:
             "estimatedCost": "15000.00",
         }
 
-    def _make_request(self) -> object:
-        from public_api_sdk.models.order import PreflightRequest
-
+    def _make_request(self) -> PreflightRequest:
         return PreflightRequest(
             instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
             order_side=OrderSide.BUY,
