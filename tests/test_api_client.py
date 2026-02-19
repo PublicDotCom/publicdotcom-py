@@ -1,6 +1,7 @@
 """Tests for the ApiClient HTTP layer."""
 
 import json
+from typing import Optional
 from unittest.mock import Mock
 
 import pytest
@@ -20,7 +21,7 @@ from public_api_sdk.exceptions import (
 def _make_response(
     status_code: int,
     data: object = None,
-    headers: dict = None,
+    headers: Optional[dict] = None,
     empty_body: bool = False,
 ) -> Mock:
     """Build a mock requests.Response."""
