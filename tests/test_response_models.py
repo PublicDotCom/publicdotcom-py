@@ -7,8 +7,6 @@ fields degrade gracefully when absent.
 
 from decimal import Decimal
 
-import pytest
-
 from public_api_sdk.models.account import (
     Account,
     AccountsResponse,
