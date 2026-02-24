@@ -52,7 +52,7 @@ from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 __all__ = [
     "AuthConfig",
