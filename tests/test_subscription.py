@@ -320,7 +320,9 @@ class TestPriceSubscriptionManager(unittest.TestCase):
             self.manager.subscriptions[sub_id].status, SubscriptionStatus.ACTIVE
         )
 
-    async def test_async_callback(self) -> None:
+    def test_async_callback(self) -> None:
+        # Previously declared `async def`, so pytest silently returned without
+        # running the body. Removing `async` so the test actually executes.
         async_called = threading.Event()
 
         async def async_callback(_price_change: PriceChange) -> None:

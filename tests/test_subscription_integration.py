@@ -108,8 +108,6 @@ def test_subscription_integration() -> None:
 
         client.close()
 
-        print("✅ Integration test passed!")
-
 
 def test_multiple_subscriptions() -> None:
     """Test managing multiple concurrent subscriptions."""
@@ -162,8 +160,6 @@ def test_multiple_subscriptions() -> None:
         assert len(client.price_stream.get_active_subscriptions()) == 0
 
         client.close()
-
-        print("✅ Multiple subscriptions test passed!")
 
 
 if __name__ == "__main__":
