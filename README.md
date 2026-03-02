@@ -65,6 +65,40 @@ quotes = client.get_quotes([
 ])
 ```
 
+## Async Quick Start
+
+The SDK ships an `AsyncPublicApiClient` for use in `async`/`await` code. It uses [`httpx`](https://www.python-httpx.org/) as the HTTP transport, so no background threads are needed.
+
+```python
+import asyncio
+from public_api_sdk import (
+    AsyncPublicApiClient,
+    AsyncPublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+    OrderInstrument,
+    InstrumentType,
+)
+
+async def main():
+    async with AsyncPublicApiClient(
+        auth_config=ApiKeyAuthConfig(api_secret_key="INSERT_API_SECRET_KEY"),
+        config=AsyncPublicApiClientConfiguration(
+            default_account_number="INSERT_ACCOUNT_NUMBER"
+        ),
+    ) as client:
+        accounts = await client.get_accounts()
+
+        quotes = await client.get_quotes([
+            OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
+        ])
+        for q in quotes:
+            print(f"{q.instrument.symbol}: ${q.last}")
+
+asyncio.run(main())
+```
+
+The `async with` block automatically cancels any active price subscriptions and closes the HTTP connection when the block exits — no `try/finally` or manual `close()` call required.
+
 ## API Reference
 
 ### Client Configuration
@@ -561,6 +595,291 @@ subscription_id = client.subscribe_to_price_changes(
 
 
 
+## Async Client
+
+`AsyncPublicApiClient` mirrors every method on the sync `PublicApiClient` — the difference is that all API calls are coroutines that must be `await`ed, and the price subscription API is fully async-native.
+
+### Configuration
+
+```python
+from public_api_sdk import (
+    AsyncPublicApiClient,
+    AsyncPublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+)
+
+config = AsyncPublicApiClientConfiguration(
+    default_account_number="INSERT_ACCOUNT_NUMBER",  # optional default account
+)
+
+client = AsyncPublicApiClient(
+    auth_config=ApiKeyAuthConfig(api_secret_key="INSERT_API_SECRET_KEY"),
+    config=config,
+)
+```
+
+> **Token acquisition is lazy.** No network call is made in `__init__`. The first `await`ed API call fetches a token and stores it for subsequent requests.
+
+### Context Manager
+
+The recommended way to use the async client is with `async with`. Resources are released automatically whether the block exits normally or via an exception.
+
+```python
+async with AsyncPublicApiClient(auth_config=..., config=...) as client:
+    accounts = await client.get_accounts()
+    # subscriptions cancelled + HTTP client closed on exit
+```
+
+You can also manage the lifecycle manually if needed:
+
+```python
+client = AsyncPublicApiClient(auth_config=..., config=...)
+try:
+    accounts = await client.get_accounts()
+finally:
+    await client.close()  # cancels subscriptions and closes HTTP connection
+```
+
+### Concurrent Requests with asyncio.gather
+
+Because every method is a coroutine, you can fire multiple independent requests simultaneously:
+
+```python
+import asyncio
+
+accounts, portfolio, quotes = await asyncio.gather(
+    client.get_accounts(),
+    client.get_portfolio(),
+    client.get_quotes([OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)]),
+)
+```
+
+### Account & Portfolio
+
+All account and portfolio methods work identically to the sync client — just `await` them.
+
+```python
+# Get all accounts
+accounts = await client.get_accounts()
+
+# Portfolio snapshot
+portfolio = await client.get_portfolio()                        # uses default account
+portfolio = await client.get_portfolio(account_id="ACC123")    # explicit account
+
+# Paginated history
+from public_api_sdk import HistoryRequest
+
+history = await client.get_history(HistoryRequest(page_size=10))
+print(f"Transactions: {len(history.transactions)}")
+```
+
+### Market Data
+
+```python
+# One-off quotes
+quotes = await client.get_quotes([
+    OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY),
+    OrderInstrument(symbol="NVDA", type=InstrumentType.EQUITY),
+])
+
+# Instrument details
+instrument = await client.get_instrument("AAPL", InstrumentType.EQUITY)
+
+# All tradeable instruments
+from public_api_sdk import InstrumentsRequest, Trading
+
+instruments = await client.get_all_instruments(
+    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[Trading.BUY_AND_SELL])
+)
+```
+
+### Order Placement and Tracking
+
+`place_order` and `place_multileg_order` return an `AsyncNewOrder`, which exposes async helpers for polling and subscribing to status changes.
+
+```python
+import uuid
+from decimal import Decimal
+from public_api_sdk import (
+    OrderRequest, OrderInstrument, InstrumentType,
+    OrderSide, OrderType, OrderExpirationRequest, TimeInForce,
+)
+
+order = await client.place_order(
+    OrderRequest(
+        order_id=str(uuid.uuid4()),
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("10"),
+        limit_price=Decimal("227.50"),
+    )
+)
+print(f"Placed: {order.order_id}")
+```
+
+#### AsyncNewOrder — waiting for a fill
+
+```python
+from public_api_sdk.models.new_order import WaitTimeoutError
+
+try:
+    # Poll until filled; raises WaitTimeoutError after 60 seconds
+    filled = await order.wait_for_fill(timeout=60)
+    print(f"Filled at ${filled.average_price}")
+except WaitTimeoutError:
+    print("Order not filled within 60 seconds")
+    await order.cancel()
+```
+
+#### AsyncNewOrder — waiting for any terminal status
+
+```python
+# FILLED, CANCELLED, REJECTED, EXPIRED, or REPLACED
+result = await order.wait_for_terminal_status(timeout=120)
+print(f"Final status: {result.status}")
+```
+
+#### AsyncNewOrder — status update subscriptions
+
+```python
+async def on_order_update(update):
+    print(f"{update.old_status} -> {update.new_status}")
+
+await order.subscribe_updates(on_order_update)
+
+# ... later
+await order.unsubscribe()
+```
+
+#### Get and Cancel Orders
+
+```python
+# Get current status
+order_details = await client.get_order(order_id="ORDER-ID")
+print(f"Status: {order_details.status}")
+
+# Cancel
+await client.cancel_order(order_id="ORDER-ID")
+```
+
+### Async Price Subscriptions
+
+The async client exposes `client.price_stream`, an `AsyncPriceStream` instance backed by per-subscription `asyncio.Task`s. No background threads are used.
+
+#### Subscribe
+
+```python
+from public_api_sdk import PriceChange, SubscriptionConfig
+
+async def on_price_change(change: PriceChange) -> None:
+    symbol = change.instrument.symbol
+    print(f"{symbol}: ${change.new_quote.last}  (bid=${change.new_quote.bid}, ask=${change.new_quote.ask})")
+
+sub_id = await client.price_stream.subscribe(
+    instruments=[
+        OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+    ],
+    callback=on_price_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+```
+
+Callbacks can be sync (`def`) or async (`async def`) — both are detected automatically.
+
+#### Independent subscriptions per symbol
+
+Create one subscription per instrument to control each one independently:
+
+```python
+msft_sub = await client.price_stream.subscribe(
+    instruments=[OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY)],
+    callback=on_msft_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+
+nvda_sub = await client.price_stream.subscribe(
+    instruments=[OrderInstrument(symbol="NVDA", type=InstrumentType.EQUITY)],
+    callback=on_nvda_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+```
+
+#### Pause, Resume, and Retune
+
+```python
+# Pause one subscription without cancelling it
+client.price_stream.pause(nvda_sub)
+
+await asyncio.sleep(5)
+
+# Resume it
+client.price_stream.resume(nvda_sub)
+
+# Slow down polling without re-subscribing (valid range: 0.1 – 60 seconds)
+client.price_stream.set_polling_frequency(msft_sub, 3.0)
+```
+
+#### Inspect active subscriptions
+
+```python
+active_ids = client.price_stream.get_active_subscriptions()
+
+info = client.price_stream.get_subscription_info(msft_sub)
+if info:
+    print(f"MSFT polling every {info.polling_frequency}s")
+```
+
+#### Unsubscribe
+
+```python
+# Cancel a single subscription
+await client.price_stream.unsubscribe(msft_sub)
+
+# Cancel all at once (also called automatically by the context manager)
+await client.price_stream.unsubscribe_all()
+```
+
+### Preflight Calculations (Async)
+
+```python
+from public_api_sdk import PreflightRequest, OrderSide, OrderType, OrderExpirationRequest, TimeInForce
+from decimal import Decimal
+
+preflight = await client.perform_preflight_calculation(
+    PreflightRequest(
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("10"),
+        limit_price=Decimal("227.50"),
+    )
+)
+print(f"Estimated commission: ${preflight.estimated_commission}")
+print(f"Order value: ${preflight.order_value}")
+```
+
+### Error Handling (Async)
+
+```python
+from public_api_sdk.exceptions import AuthenticationError, RateLimitError, ServerError
+
+async with AsyncPublicApiClient(auth_config=..., config=...) as client:
+    try:
+        order = await client.place_order(order_request)
+        filled = await order.wait_for_fill(timeout=60)
+    except AuthenticationError:
+        print("Token expired or invalid — check your API key")
+    except RateLimitError as e:
+        print(f"Rate limited — retry after {e.retry_after}s")
+    except ServerError:
+        print("API server error — retry later")
+```
+
+The context manager ensures cleanup even when an exception propagates out of the `async with` block.
+
 ## Examples
 
 ### Complete Trading Workflow
@@ -583,7 +902,7 @@ See `example_options.py` for a comprehensive options trading example that shows:
 - Performing multi-leg preflight calculations
 - Placing multi-leg option orders
 
-### Price Subscription
+### Price Subscription (Sync)
 
 See `example_price_subscription.py` for complete examples including:
 - Basic subscription usage
@@ -591,6 +910,18 @@ See `example_price_subscription.py` for complete examples including:
 - Multiple concurrent subscriptions
 - Custom price alert system
 
+### Async Client
+
+See `example_async_client.py` for a full async example that demonstrates:
+- API-key authentication with the async context manager
+- Concurrent account + portfolio fetch with `asyncio.gather`
+- One-off quote snapshot before subscribing
+- Two independent async price subscriptions (one per symbol, 1-second polling)
+- Async callbacks with bid-ask spread and percentage-change tracking
+- Mid-run pause and resume of an individual subscription
+- Dynamic polling-frequency adjustment without re-subscribing
+- Subscription-info inspection at runtime
+- End-of-run summary stats
 
 ## Error Handling
 
@@ -607,7 +938,8 @@ finally:
 
 ## Important Notes
 
-- Order placement is asynchronous. Always use `get_order()` to verify order status.
+- Order placement is asynchronous on the exchange side. Always use `get_order()` or `wait_for_fill()` to confirm the final status.
 - For accounts with a default account number configured, the `account_id` parameter is optional in most methods.
-- The client manages token refresh automatically.
-- Always call `client.close()` when done to clean up resources.
+- Both clients manage token acquisition and refresh automatically — no manual token handling is needed.
+- **Sync client:** always call `client.close()` when done to clean up resources.
+- **Async client:** prefer `async with AsyncPublicApiClient(...) as client:` — this cancels all subscriptions and closes the HTTP connection automatically. If you manage the lifecycle manually, call `await client.close()`.
