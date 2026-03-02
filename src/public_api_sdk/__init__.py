@@ -1,8 +1,9 @@
-from .auth_config import ApiKeyAuthConfig, AuthConfig, OAuthAuthConfig
+from .auth_config import ApiKeyAuthConfig, AsyncAuthConfig, AuthConfig, OAuthAuthConfig
 from .exceptions import APIError, AuthenticationError, RateLimitError
 from .models import (
     Account,
     AccountType,
+    AsyncNewOrder,
     HistoryRequest,
     HistoryResponsePage,
     InstrumentsRequest,
@@ -48,6 +49,9 @@ from .models import (
     Trading,
     WaitTimeoutError,
 )
+from .async_price_stream import AsyncPriceStream
+from .async_public_api_client import AsyncPublicApiClient, AsyncPublicApiClientConfiguration
+from .async_subscription_manager import AsyncPriceSubscriptionManager
 from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
 from .subscription_manager import PriceSubscriptionManager
@@ -55,8 +59,10 @@ from .subscription_manager import PriceSubscriptionManager
 __version__ = "0.1.9"
 
 __all__ = [
+    # Auth
     "AuthConfig",
-    "ApiKeyAuthConfig", 
+    "AsyncAuthConfig",
+    "ApiKeyAuthConfig",
     "OAuthAuthConfig",
     "Account",
     "AccountType",
@@ -79,6 +85,7 @@ __all__ = [
     "OrderResponse",
     "OrderStatus",
     "NewOrder",
+    "AsyncNewOrder",
     "OrderUpdate",
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
@@ -108,6 +115,12 @@ __all__ = [
     "PublicApiClientConfiguration",
     "PriceSubscriptionManager",
     "PriceStream",
+    # Async client
+    "AsyncPublicApiClient",
+    "AsyncPublicApiClientConfiguration",
+    "AsyncPriceSubscriptionManager",
+    "AsyncPriceStream",
+    # Exceptions
     "APIError",
     "AuthenticationError",
     "RateLimitError",

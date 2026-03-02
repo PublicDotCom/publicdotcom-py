@@ -26,6 +26,7 @@ classifiers = [
 
 dependencies = [
     "requests>=2.28.0",
+    "httpx>=0.24.0",
     "pydantic>=2.0.0",
     "typing-extensions>=4.0.0",
     "python-dotenv>=1.0.0",
@@ -40,7 +41,6 @@ dev = [
     "isort>=5.12.0",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
-    "httpx>=0.24.0",  # for async testing
 ]
 
 [project.urls]

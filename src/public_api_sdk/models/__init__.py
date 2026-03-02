@@ -50,6 +50,7 @@ from .new_order import (
     OrderSubscriptionConfig,
     WaitTimeoutError,
 )
+from .async_new_order import AsyncNewOrder
 
 __all__ = [
     "AccessTokenResponse",
@@ -103,4 +104,5 @@ __all__ = [
     "OrderUpdateCallback",
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
+    "AsyncNewOrder",
 ]
