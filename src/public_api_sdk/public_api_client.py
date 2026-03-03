@@ -34,6 +34,7 @@ from .models import (
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
+from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
@@ -91,6 +92,10 @@ class PublicApiClient:
         # initialize order subscription manager
         self._order_subscription_manager = OrderSubscriptionManager(
             get_order_func=self.get_order
+        )
+
+        self.strategy_preflight = StrategyPreflight(
+            preflight_func=self.perform_multi_leg_preflight_calculation
         )
 
     @property

@@ -6,6 +6,7 @@ from .async_api_client import AsyncApiClient
 from .async_auth_provider import AsyncAuthManager
 from .async_order_subscription_manager import AsyncOrderSubscriptionManager
 from .async_price_stream import AsyncPriceStream
+from .async_strategy_preflight import AsyncStrategyPreflight
 from .async_subscription_manager import AsyncPriceSubscriptionManager
 from .models import (
     AccountsResponse,
@@ -100,6 +101,10 @@ class AsyncPublicApiClient:
 
         self._order_subscription_manager = AsyncOrderSubscriptionManager(
             get_order_func=self.get_order
+        )
+
+        self.strategy_preflight = AsyncStrategyPreflight(
+            preflight_func=self.perform_multi_leg_preflight_calculation
         )
 
     # ------------------------------------------------------------------ #
