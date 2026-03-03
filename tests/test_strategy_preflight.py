@@ -72,6 +72,21 @@ class TestBuildOsi:
 
 
 # ---------------------------------------------------------------------------
+# _build_osi — invalid date format
+# ---------------------------------------------------------------------------
+
+
+class TestBuildOsiValidation:
+    def test_invalid_date_format_raises(self) -> None:
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            _build_osi("AAPL", "19-12-2025", OptionType.CALL, Decimal("190"))
+
+    def test_completely_bad_date_raises(self) -> None:
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            _build_osi("AAPL", "not-a-date", OptionType.CALL, Decimal("190"))
+
+
+# ---------------------------------------------------------------------------
 # _make_credit_spread_request
 # ---------------------------------------------------------------------------
 
@@ -155,6 +170,74 @@ class TestMakeCreditSpreadRequest:
 
 
 # ---------------------------------------------------------------------------
+# _make_credit_spread_request — validation
+# ---------------------------------------------------------------------------
+
+
+class TestCreditSpreadValidation:
+    def _base(self, **kwargs):
+        defaults = dict(
+            symbol="AAPL",
+            option_type=OptionType.CALL,
+            expiration_date="2025-12-19",
+            sell_strike=Decimal("190"),
+            buy_strike=Decimal("195"),
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+        )
+        defaults.update(kwargs)
+        return _make_credit_spread_request(**defaults)
+
+    def test_zero_limit_price_raises(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            self._base(limit_price=Decimal("0"))
+
+    def test_negative_limit_price_raises(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            self._base(limit_price=Decimal("-1.00"))
+
+    def test_call_equal_strikes_raises(self) -> None:
+        with pytest.raises(ValueError, match="sell_strike < buy_strike"):
+            self._base(sell_strike=Decimal("190"), buy_strike=Decimal("190"))
+
+    def test_call_inverted_strikes_raises(self) -> None:
+        # sell_strike > buy_strike is wrong for a CALL credit spread
+        with pytest.raises(ValueError, match="sell_strike < buy_strike"):
+            self._base(sell_strike=Decimal("195"), buy_strike=Decimal("190"))
+
+    def test_put_equal_strikes_raises(self) -> None:
+        with pytest.raises(ValueError, match="sell_strike > buy_strike"):
+            self._base(
+                option_type=OptionType.PUT,
+                sell_strike=Decimal("185"),
+                buy_strike=Decimal("185"),
+            )
+
+    def test_put_inverted_strikes_raises(self) -> None:
+        # sell_strike < buy_strike is wrong for a PUT credit spread
+        with pytest.raises(ValueError, match="sell_strike > buy_strike"):
+            self._base(
+                option_type=OptionType.PUT,
+                sell_strike=Decimal("180"),
+                buy_strike=Decimal("185"),
+            )
+
+    def test_valid_call_credit_spread_passes(self) -> None:
+        req = self._base(sell_strike=Decimal("190"), buy_strike=Decimal("195"))
+        assert req.legs[0].side == OrderSide.SELL
+
+    def test_valid_put_credit_spread_passes(self) -> None:
+        req = self._base(
+            option_type=OptionType.PUT,
+            sell_strike=Decimal("185"),
+            buy_strike=Decimal("180"),
+        )
+        assert req.legs[0].side == OrderSide.SELL
+
+
+# ---------------------------------------------------------------------------
 # _make_debit_spread_request
 # ---------------------------------------------------------------------------
 
@@ -213,6 +296,74 @@ class TestMakeDebitSpreadRequest:
         req = self._build()
         for leg in req.legs:
             assert leg.ratio_quantity == 1
+
+
+# ---------------------------------------------------------------------------
+# _make_debit_spread_request — validation
+# ---------------------------------------------------------------------------
+
+
+class TestDebitSpreadValidation:
+    def _base(self, **kwargs):
+        defaults = dict(
+            symbol="AAPL",
+            option_type=OptionType.CALL,
+            expiration_date="2025-12-19",
+            buy_strike=Decimal("190"),
+            sell_strike=Decimal("195"),
+            quantity=1,
+            limit_price=Decimal("3.00"),
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+        )
+        defaults.update(kwargs)
+        return _make_debit_spread_request(**defaults)
+
+    def test_zero_limit_price_raises(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            self._base(limit_price=Decimal("0"))
+
+    def test_negative_limit_price_raises(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            self._base(limit_price=Decimal("-1.00"))
+
+    def test_call_equal_strikes_raises(self) -> None:
+        with pytest.raises(ValueError, match="buy_strike < sell_strike"):
+            self._base(buy_strike=Decimal("190"), sell_strike=Decimal("190"))
+
+    def test_call_inverted_strikes_raises(self) -> None:
+        # buy_strike > sell_strike is wrong for a CALL debit spread
+        with pytest.raises(ValueError, match="buy_strike < sell_strike"):
+            self._base(buy_strike=Decimal("195"), sell_strike=Decimal("190"))
+
+    def test_put_equal_strikes_raises(self) -> None:
+        with pytest.raises(ValueError, match="buy_strike > sell_strike"):
+            self._base(
+                option_type=OptionType.PUT,
+                buy_strike=Decimal("185"),
+                sell_strike=Decimal("185"),
+            )
+
+    def test_put_inverted_strikes_raises(self) -> None:
+        # buy_strike < sell_strike is wrong for a PUT debit spread
+        with pytest.raises(ValueError, match="buy_strike > sell_strike"):
+            self._base(
+                option_type=OptionType.PUT,
+                buy_strike=Decimal("180"),
+                sell_strike=Decimal("185"),
+            )
+
+    def test_valid_call_debit_spread_passes(self) -> None:
+        req = self._base(buy_strike=Decimal("190"), sell_strike=Decimal("195"))
+        assert req.legs[0].side == OrderSide.BUY
+
+    def test_valid_put_debit_spread_passes(self) -> None:
+        req = self._base(
+            option_type=OptionType.PUT,
+            buy_strike=Decimal("185"),
+            sell_strike=Decimal("180"),
+        )
+        assert req.legs[0].side == OrderSide.BUY
 
 
 # ---------------------------------------------------------------------------

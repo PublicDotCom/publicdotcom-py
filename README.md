@@ -410,6 +410,83 @@ print(f"  Buying Power Required: ${preflight_result.buying_power_requirement}")
 print("\n" + "="*70)
 ```
 
+##### Strategy Preflight Helpers
+
+The SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
+
+**CALL credit spread (Bear Call Spread)** — profits if the underlying stays *below* the sell strike at expiry.
+
+```python
+from decimal import Decimal
+from public_api_sdk import OptionType, TimeInForce
+
+result = client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("195"),   # sell_strike < buy_strike for calls
+    buy_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("1.50"),  # minimum credit to accept (positive value)
+)
+cost = float(result.estimated_cost)
+print(f"Estimated credit: ${abs(cost):.2f}")
+print(f"Buying power required: ${result.buying_power_requirement}")
+```
+
+**PUT credit spread (Bull Put Spread)** — profits if the underlying stays *above* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.PUT,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("185"),   # sell_strike > buy_strike for puts
+    buy_strike=Decimal("180"),
+    quantity=1,
+    limit_price=Decimal("1.50"),
+)
+```
+
+**CALL debit spread (Bull Call Spread)** — profits if the underlying rises *above* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.debit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    buy_strike=Decimal("195"),    # buy_strike < sell_strike for calls
+    sell_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("2.50"),  # maximum debit to pay (positive value)
+)
+cost = float(result.estimated_cost)
+print(f"Estimated debit: ${cost:.2f}")
+```
+
+**PUT debit spread (Bear Put Spread)** — profits if the underlying falls *below* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.debit_spread(
+    symbol="AAPL",
+    option_type=OptionType.PUT,
+    expiration_date="2025-12-19",
+    buy_strike=Decimal("185"),    # buy_strike > sell_strike for puts
+    sell_strike=Decimal("180"),
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+```
+
+> **Strike ordering rules** are enforced before the network call:
+> - CALL credit / PUT debit: `sell_strike < buy_strike` / `buy_strike > sell_strike`
+> - PUT credit / CALL debit: `sell_strike > buy_strike` / `buy_strike < sell_strike`
+>
+> `limit_price` is always a positive value regardless of strategy direction.
+> A `ValueError` with a clear message is raised immediately if any constraint is violated.
+
+See `examples/example_strategy_preflight.py` for a complete runnable example that fetches live quotes and expirations to auto-derive strikes.
+
 #### Place Orders
 
 ##### Place Single-Leg Order
@@ -925,21 +1002,63 @@ print(f"Estimated commission: ${preflight.estimated_commission}")
 print(f"Order value: ${preflight.order_value}")
 ```
 
+### Strategy Preflight Helpers (Async)
+
+All four spread helpers are available on the async client with identical parameters — just `await` them.
+
+```python
+from decimal import Decimal
+from public_api_sdk import OptionType
+
+result = await client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("195"),
+    buy_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("1.50"),
+)
+cost = float(result.estimated_cost)
+print(f"Estimated credit: ${abs(cost):.2f}")
+```
+
 ### Error Handling (Async)
 
 ```python
-from public_api_sdk.exceptions import AuthenticationError, RateLimitError, ServerError
+from public_api_sdk.exceptions import (
+    APIError,
+    AuthenticationError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
 
 async with AsyncPublicApiClient(auth_config=..., config=...) as client:
     try:
         order = await client.place_order(order_request)
         filled = await order.wait_for_fill(timeout=60)
+    except ValueError as e:
+        # Local validation failed before any network call (e.g. bad strike order)
+        print(f"Invalid parameters: {e}")
     except AuthenticationError:
-        print("Token expired or invalid — check your API key")
+        print("Invalid or expired credentials — regenerate your API key")
+    except ValidationError as e:
+        # HTTP 400 — invalid symbol, bad strike, insufficient buying power, etc.
+        print(f"Request rejected: {e.message}")
+        print(f"Details: {e.response_data}")
+    except NotFoundError:
+        # HTTP 404 — order not indexed yet (async placement) or unknown resource
+        print("Resource not found — if this is an order, retry after a moment")
     except RateLimitError as e:
-        print(f"Rate limited — retry after {e.retry_after}s")
+        wait = e.retry_after or 5
+        print(f"Rate limited — retry after {wait}s")
     except ServerError:
         print("API server error — retry later")
+    except APIError as e:
+        # Catch-all for any other API error
+        print(f"Unexpected API error ({e.status_code}): {e.message}")
 ```
 
 The context manager ensures cleanup even when an exception propagates out of the `async with` block.
@@ -957,6 +1076,13 @@ See `example.py` for a complete trading workflow example that demonstrates:
 - Cancel and replace an open order
 - Getting portfolio information
 - Retrieving account history
+
+### Strategy Preflight Example
+
+See `example_strategy_preflight.py` for a self-contained example that:
+- Fetches a live quote to anchor strikes to the current market price
+- Resolves the nearest option expiration automatically
+- Runs all four spread types (CALL/PUT × credit/debit) back-to-back
 
 ### Options Trading Example
 
@@ -991,13 +1117,59 @@ See `example_async_client.py` for a full async example that demonstrates:
 
 ## Error Handling
 
-The SDK will raise exceptions for API errors. It's recommended to wrap API calls in try-except blocks:
+All API errors inherit from `APIError` and carry a `status_code` and `response_data` for full context.
+
+| Exception | HTTP status | Typical cause |
+|-----------|-------------|---------------|
+| `AuthenticationError` | 401 | Expired or revoked API key / token |
+| `ValidationError` | 400 | Invalid symbol, bad strike, wrong price sign, insufficient buying power |
+| `NotFoundError` | 404 | Order not yet indexed after async placement, unknown resource |
+| `RateLimitError` | 429 | Too many requests — check `retry_after` for backoff duration |
+| `ServerError` | 5xx | Transient server error — retry after a short wait |
+| `APIError` | any | Base class; catches all of the above |
 
 ```python
+from public_api_sdk.exceptions import (
+    APIError,
+    AuthenticationError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
+
 try:
-    order_response = client.place_order(order_request)
-except Exception as e:
-    print(f"Error placing order: {e}")
+    result = client.strategy_preflight.credit_spread(
+        symbol="AAPL",
+        option_type=OptionType.CALL,
+        expiration_date="2025-12-19",
+        sell_strike=Decimal("195"),
+        buy_strike=Decimal("200"),
+        quantity=1,
+        limit_price=Decimal("1.50"),
+    )
+except ValueError as e:
+    # Local validation failed before any network call
+    # e.g. strikes in the wrong order, non-positive limit_price
+    print(f"Invalid parameters: {e}")
+except AuthenticationError:
+    print("Invalid or expired credentials — regenerate your API key")
+except ValidationError as e:
+    # HTTP 400 from the API — bad symbol, unsupported expiration, etc.
+    print(f"Request rejected: {e.message}")
+    print(f"Details: {e.response_data}")
+except NotFoundError:
+    print("Resource not found")
+except RateLimitError as e:
+    import time
+    wait = e.retry_after or 5
+    print(f"Rate limited — waiting {wait}s")
+    time.sleep(wait)
+    # retry ...
+except ServerError:
+    print("Server error — retry after a moment")
+except APIError as e:
+    print(f"Unexpected API error ({e.status_code}): {e.message}")
 finally:
     client.close()
 ```

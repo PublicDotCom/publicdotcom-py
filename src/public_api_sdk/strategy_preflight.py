@@ -59,9 +59,18 @@ def _build_osi(
 
     Returns:
         OSI symbol string, e.g. "AAPL251219C00190000"
+
+    Raises:
+        ValueError: If expiration_date is not in "YYYY-MM-DD" format.
     """
     opt_char = "C" if option_type == OptionType.CALL else "P"
-    date = datetime.strptime(expiration_date, "%Y-%m-%d")
+    try:
+        date = datetime.strptime(expiration_date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(
+            f"expiration_date must be in 'YYYY-MM-DD' format (e.g. '2025-12-19'); "
+            f"got {expiration_date!r}."
+        )
     strike_units = int(
         (strike * 1000).to_integral_value(rounding=ROUND_HALF_UP)
     )
@@ -84,7 +93,33 @@ def _make_credit_spread_request(
     The API requires a negative limit_price for credit spreads.  Callers pass
     a positive value representing the minimum credit they want to receive; this
     function negates it before building the request.
+
+    Raises:
+        ValueError: If limit_price is not positive, or if strikes are equal or
+            in the wrong order for the given option_type.
     """
+    if limit_price <= 0:
+        raise ValueError(
+            f"limit_price must be a positive value representing the minimum credit "
+            f"to accept (e.g. Decimal('2.50') for a $2.50 per-share credit); "
+            f"got {limit_price}."
+        )
+    if option_type == OptionType.CALL:
+        if sell_strike >= buy_strike:
+            raise ValueError(
+                f"CALL credit spread (Bear Call Spread) requires sell_strike < buy_strike "
+                f"— sell the lower/closer-to-money strike and buy the higher/further OTM "
+                f"strike for protection "
+                f"(got sell_strike={sell_strike}, buy_strike={buy_strike})."
+            )
+    else:
+        if sell_strike <= buy_strike:
+            raise ValueError(
+                f"PUT credit spread (Bull Put Spread) requires sell_strike > buy_strike "
+                f"— sell the higher/closer-to-money strike and buy the lower/further OTM "
+                f"strike for protection "
+                f"(got sell_strike={sell_strike}, buy_strike={buy_strike})."
+            )
     sell_osi = _build_osi(symbol, expiration_date, option_type, sell_strike)
     buy_osi = _build_osi(symbol, expiration_date, option_type, buy_strike)
     return PreflightMultiLegRequest(
@@ -127,7 +162,34 @@ def _make_debit_spread_request(
     time_in_force: TimeInForce,
     expiration_time: Optional[datetime],
 ) -> PreflightMultiLegRequest:
-    """Build the PreflightMultiLegRequest for a vertical debit spread."""
+    """Build the PreflightMultiLegRequest for a vertical debit spread.
+
+    Raises:
+        ValueError: If limit_price is not positive, or if strikes are equal or
+            in the wrong order for the given option_type.
+    """
+    if limit_price <= 0:
+        raise ValueError(
+            f"limit_price must be a positive value representing the maximum debit "
+            f"to pay (e.g. Decimal('3.00') for a $3.00 per-share debit); "
+            f"got {limit_price}."
+        )
+    if option_type == OptionType.CALL:
+        if buy_strike >= sell_strike:
+            raise ValueError(
+                f"CALL debit spread (Bull Call Spread) requires buy_strike < sell_strike "
+                f"— buy the lower/closer-to-money strike and sell the higher/further OTM "
+                f"strike to cap the cost "
+                f"(got buy_strike={buy_strike}, sell_strike={sell_strike})."
+            )
+    else:
+        if buy_strike <= sell_strike:
+            raise ValueError(
+                f"PUT debit spread (Bear Put Spread) requires buy_strike > sell_strike "
+                f"— buy the higher/closer-to-money strike and sell the lower/further OTM "
+                f"strike to cap the cost "
+                f"(got buy_strike={buy_strike}, sell_strike={sell_strike})."
+            )
     buy_osi = _build_osi(symbol, expiration_date, option_type, buy_strike)
     sell_osi = _build_osi(symbol, expiration_date, option_type, sell_strike)
     return PreflightMultiLegRequest(
@@ -198,10 +260,13 @@ class StrategyPreflight:
             option_type: ``OptionType.CALL`` or ``OptionType.PUT``.
             expiration_date: Option expiration date as ``"YYYY-MM-DD"``.
             sell_strike: The strike to sell (generates the credit).
+                For CALLs this must be *less than* ``buy_strike``.
+                For PUTs this must be *greater than* ``buy_strike``.
             buy_strike: The strike to buy (caps maximum loss).
             quantity: Number of spread contracts.
             limit_price: Minimum net credit to accept (positive value,
                 e.g. ``Decimal("2.50")`` for a $2.50 per-share credit).
+                The sign is handled automatically — always pass a positive number.
             time_in_force: ``DAY`` or ``GTD`` (default ``DAY``).
             expiration_time: Required when ``time_in_force`` is ``GTD``.
             account_id: Account ID (optional when ``default_account_number``
@@ -210,6 +275,16 @@ class StrategyPreflight:
         Returns:
             :class:`PreflightMultiLegResponse` with estimated credit,
             commission, and buying power impact.
+
+        Raises:
+            ValueError: If ``limit_price`` is not positive, if the strikes
+                are equal, or if their order contradicts the strategy type
+                (e.g. CALL credit spread with ``sell_strike >= buy_strike``).
+            ValueError: If no account ID is available.
+            ValidationError: If the API rejects the request (HTTP 400) — e.g.
+                invalid symbol, unsupported expiration, or insufficient buying power.
+            AuthenticationError: If the API key or token is invalid (HTTP 401).
+            APIError: For any other API error.
         """
         request = _make_credit_spread_request(
             symbol=symbol,
@@ -252,6 +327,8 @@ class StrategyPreflight:
             option_type: ``OptionType.CALL`` or ``OptionType.PUT``.
             expiration_date: Option expiration date as ``"YYYY-MM-DD"``.
             buy_strike: The strike to buy (main directional position).
+                For CALLs this must be *less than* ``sell_strike``.
+                For PUTs this must be *greater than* ``sell_strike``.
             sell_strike: The strike to sell (reduces net cost).
             quantity: Number of spread contracts.
             limit_price: Maximum net debit to pay (positive value,
@@ -264,6 +341,15 @@ class StrategyPreflight:
         Returns:
             :class:`PreflightMultiLegResponse` with estimated cost,
             commission, and buying power impact.
+
+        Raises:
+            ValueError: If ``limit_price`` is not positive, if the strikes
+                are equal, or if their order contradicts the strategy type
+                (e.g. CALL debit spread with ``buy_strike >= sell_strike``).
+            ValueError: If no account ID is available.
+            ValidationError: If the API rejects the request (HTTP 400).
+            AuthenticationError: If the API key or token is invalid (HTTP 401).
+            APIError: For any other API error.
         """
         request = _make_debit_spread_request(
             symbol=symbol,
