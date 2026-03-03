@@ -40,6 +40,7 @@ dev = [
     "black>=23.0.0",
     "isort>=5.12.0",
     "mypy>=1.0.0",
+    "types-requests>=2.28.0",  # mypy stubs for the requests library
     "pre-commit>=3.0.0",
 ]
 
@@ -67,7 +68,7 @@ multi_line_output = 3
 line_length = 88
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 plugins = ["pydantic.mypy"]
 warn_return_any = true
 warn_unused_configs = true

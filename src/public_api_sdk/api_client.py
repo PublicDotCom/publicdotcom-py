@@ -1,8 +1,9 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 import requests
+from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter, BaseAdapter
 from urllib3.util.retry import Retry
 
@@ -17,10 +18,18 @@ from .exceptions import (
 
 
 class BlockHTTPAdapter(BaseAdapter):
-    def send(self, request, **kwargs):
+    def send(
+        self,
+        request: PreparedRequest,
+        stream: bool = False,
+        timeout: Optional[Union[float, Tuple[float, float], Tuple[float, None]]] = None,
+        verify: Union[bool, str] = True,
+        cert: Optional[Union[bytes, str, Tuple[Union[bytes, str], Union[bytes, str]]]] = None,
+        proxies: Optional[Mapping[str, str]] = None,
+    ) -> Response:
         raise RuntimeError("Insecure HTTP requests are not allowed. Use HTTPS endpoints only.")
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
