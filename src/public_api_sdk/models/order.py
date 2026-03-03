@@ -459,6 +459,93 @@ class OrderResponse(BaseModel):
     order_id: str = Field(..., alias="orderId")
 
 
+class CancelAndReplaceRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    order_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("order_id", "orderId"),
+        serialization_alias="orderId",
+        description="The ID of the existing order to cancel and replace.",
+    )
+
+    @field_validator("order_id")
+    @classmethod
+    def validate_order_id_uuid(cls, v: str) -> str:
+        try:
+            UUID(v, version=4)
+        except ValueError as exc:
+            raise ValueError(
+                f"order_id must be a valid UUID conforming to RFC 4122. Got: {v}"
+            ) from exc
+        return v
+
+    request_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("request_id", "requestId"),
+        serialization_alias="requestId",
+        description="A unique UUID used for idempotency of the replace request.",
+    )
+
+    @field_validator("request_id")
+    @classmethod
+    def validate_request_id_uuid(cls, v: str) -> str:
+        try:
+            UUID(v, version=4)
+        except ValueError as exc:
+            raise ValueError(
+                f"request_id must be a valid UUID conforming to RFC 4122. Got: {v}"
+            ) from exc
+        return v
+
+    order_type: OrderType = Field(
+        ...,
+        validation_alias=AliasChoices("order_type", "orderType"),
+        serialization_alias="orderType",
+        description="The type of the replacement order.",
+    )
+    expiration: OrderExpirationRequest = Field(
+        ...,
+        description="Expiration details for the replacement order.",
+    )
+    quantity: Optional[Decimal] = Field(
+        None,
+        description="The replacement order quantity.",
+    )
+    limit_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("limit_price", "limitPrice"),
+        serialization_alias="limitPrice",
+        description="The limit price. Required when orderType is LIMIT or STOP_LIMIT.",
+    )
+    stop_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("stop_price", "stopPrice"),
+        serialization_alias="stopPrice",
+        description="The stop price. Required when orderType is STOP or STOP_LIMIT.",
+    )
+
+    @field_serializer("order_type")
+    def serialize_order_type(self, value: OrderType) -> str:
+        return value.value
+
+    @field_serializer("quantity")
+    def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
+        return (
+            str(value.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
+            if value is not None
+            else None
+        )
+
+    @field_serializer("limit_price", "stop_price")
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        return (
+            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            if value is not None
+            else None
+        )
+
+
 class OrderStatus(str, Enum):
     NEW = "NEW"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"

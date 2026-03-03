@@ -9,6 +9,7 @@ from .async_price_stream import AsyncPriceStream
 from .async_subscription_manager import AsyncPriceSubscriptionManager
 from .models import (
     AccountsResponse,
+    CancelAndReplaceRequest,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -526,4 +527,33 @@ class AsyncPublicApiClient:
         await self.auth_manager.refresh_token_if_needed()
         await self.api_client.delete(
             f"/userapigateway/trading/{account_id}/order/{order_id}"
+        )
+
+    async def cancel_and_replace_order(
+        self,
+        request: CancelAndReplaceRequest,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Cancel an existing order and replace it with a new one atomically.
+
+        Args:
+            request: CancelAndReplaceRequest with the existing order ID, a unique
+                request ID, and the new order parameters.
+            account_id: Account ID (optional when default_account_number is set)
+
+        Returns:
+            AsyncNewOrder for tracking the replacement order
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.put(
+            f"/userapigateway/trading/{account_id}/order",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        order_response = OrderResponse(**response)
+        return AsyncNewOrder(
+            order_id=order_response.order_id,
+            account_id=account_id,
+            client=self,
+            subscription_manager=self._order_subscription_manager,
         )

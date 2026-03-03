@@ -5,6 +5,7 @@ from .auth_config import AuthConfig
 from .auth_manager import AuthManager
 from .models import (
     AccountsResponse,
+    CancelAndReplaceRequest,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -504,3 +505,32 @@ class PublicApiClient:
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
         self.api_client.delete(f"/userapigateway/trading/{account_id}/order/{order_id}")
+
+    def cancel_and_replace_order(
+        self,
+        request: CancelAndReplaceRequest,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Cancel an existing order and replace it with a new one atomically.
+
+        Args:
+            request: CancelAndReplaceRequest with the existing order ID, a unique
+                request ID, and the new order parameters.
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            NewOrder object for tracking the replacement order
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.put(
+            f"/userapigateway/trading/{account_id}/order",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        order_response = OrderResponse(**response)
+        return NewOrder(
+            order_id=order_response.order_id,
+            account_id=account_id,
+            client=self,
+            subscription_manager=self._order_subscription_manager,
+        )

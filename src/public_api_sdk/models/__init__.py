@@ -20,6 +20,7 @@ from .option import (
     GreeksResponse,
 )
 from .order import (
+    CancelAndReplaceRequest,
     OrderInstrument,
     OrderExpirationRequest,
     OrderSide,
@@ -68,6 +69,7 @@ __all__ = [
     "OptionChainResponse",
     "OptionExpirationsRequest",
     "OptionExpirationsResponse",
+    "CancelAndReplaceRequest",
     "OrderInstrument",
     "OrderExpirationRequest",
     "OrderSide",
