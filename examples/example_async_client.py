@@ -5,6 +5,7 @@ Demonstrates the AsyncPublicApiClient, including:
   - API-key authentication via async context manager (no manual cleanup needed)
   - Concurrent account + portfolio fetch with asyncio.gather
   - One-off quote snapshot before subscribing
+  - Cancel-and-replace an open order (crypto/options only; equity coming soon)
   - Two independent async price subscriptions (one per symbol, 1-second polling)
   - Async callbacks with bid-ask spread and percentage-change tracking
   - Mid-run pause and resume of an individual subscription
@@ -18,6 +19,7 @@ Run:
 
 import asyncio
 import os
+import uuid
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -27,10 +29,16 @@ from public_api_sdk import (
     ApiKeyAuthConfig,
     AsyncPublicApiClient,
     AsyncPublicApiClientConfiguration,
+    CancelAndReplaceRequest,
     InstrumentType,
+    OrderExpirationRequest,
     OrderInstrument,
+    OrderRequest,
+    OrderSide,
+    OrderType,
     PriceChange,
     SubscriptionConfig,
+    TimeInForce,
 )
 
 
@@ -184,6 +192,29 @@ async def main() -> None:
                 f"  {q.instrument.symbol:<5}  last=${q.last:.2f}  "
                 f"bid=${q.bid:.2f}  ask=${q.ask:.2f}  spread=${spread:.4f}"
             )
+
+        # --- Cancel and replace an existing order -------------------------
+        #
+        # NOTE: cancel-and-replace currently supports crypto (quantity-based)
+        # orders and options orders only. Equity support is coming soon.
+        #
+        # Uncomment and fill in a real open order ID to try this live.
+        #
+        # original_order_id = "YOUR_OPEN_ORDER_ID"
+        # print(f"\nCancelling and replacing order {original_order_id}...")
+        # replacement = await client.cancel_and_replace_order(
+        #     CancelAndReplaceRequest(
+        #         order_id=original_order_id,
+        #         request_id=str(uuid.uuid4()),
+        #         order_type=OrderType.LIMIT,
+        #         expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        #         quantity=Decimal("1"),
+        #         limit_price=Decimal("228.00"),
+        #     )
+        # )
+        # print(f"  Replacement order ID: {replacement.order_id}")
+        # replacement_details = await replacement.wait_for_fill(timeout=30)
+        # print(f"  Filled at: ${replacement_details.average_price}")
 
         # --- Define async callbacks (one per symbol) ----------------------
 

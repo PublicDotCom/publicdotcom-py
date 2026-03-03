@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from public_api_sdk import (
     AccountType,
     ApiKeyAuthConfig,
+    CancelAndReplaceRequest,
     EquityMarketSession,
     HistoryRequest,
     InstrumentsRequest,
@@ -132,6 +133,22 @@ def main() -> None:
         print(f"Order status: {order_response.status}\n\n")
         order_details = order_response
         print(f"Order details: {order_details}\n\n")
+
+        # cancel and replace the order
+        # NOTE: cancel-and-replace currently supports crypto (quantity-based) orders
+        # and options orders only. Equity support is coming soon.
+        print("Cancelling and replacing the order with an updated limit price...")
+        replacement = public_api_client.cancel_and_replace_order(
+            CancelAndReplaceRequest(
+                order_id=new_order.order_id,
+                request_id=str(uuid.uuid4()),
+                order_type=OrderType.LIMIT,
+                expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+                quantity=Decimal("1"),
+                limit_price=Decimal("228.00"),
+            ),
+        )
+        print(f"Replacement order ID: {replacement.order_id}\n\n")
 
         # get portfolio
         print("Getting portfolio...")

@@ -503,6 +503,43 @@ client.cancel_order(
 # Note: Check order status after to confirm cancellation
 ```
 
+#### Cancel and Replace Order
+
+Atomically cancel an existing open order and submit a replacement with updated parameters in a single API call.
+
+> **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
+
+```python
+from public_api_sdk import CancelAndReplaceRequest
+import uuid
+
+replacement = client.cancel_and_replace_order(
+    CancelAndReplaceRequest(
+        order_id="EXISTING_ORDER_ID",          # order to cancel
+        request_id=str(uuid.uuid4()),          # unique idempotency key
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("5"),
+        limit_price=Decimal("228.00"),
+        # stop_price=Decimal("225.00"),        # required for STOP or STOP_LIMIT
+    ),
+    account_id="YOUR_ACCOUNT"                  # optional if default set
+)
+print(f"Replacement order ID: {replacement.order_id}")
+```
+
+The returned `NewOrder` (or `AsyncNewOrder` for the async client) can be used to track the replacement order's status exactly like a freshly placed order:
+
+```python
+# Sync: poll until filled
+filled = replacement.wait_for_fill(timeout=60)
+print(f"Filled at ${filled.average_price}")
+
+# Sync: get current status
+details = replacement.get_status()
+print(f"Status: {details.status}")
+```
+
 
 ### Price Subscription
 
@@ -764,6 +801,33 @@ print(f"Status: {order_details.status}")
 await client.cancel_order(order_id="ORDER-ID")
 ```
 
+#### Cancel and Replace Order (Async)
+
+Atomically cancel an existing open order and submit a replacement.
+
+> **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
+
+```python
+from public_api_sdk import CancelAndReplaceRequest
+import uuid
+
+replacement = await client.cancel_and_replace_order(
+    CancelAndReplaceRequest(
+        order_id="EXISTING_ORDER_ID",
+        request_id=str(uuid.uuid4()),
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("5"),
+        limit_price=Decimal("228.00"),
+    )
+)
+print(f"Replacement order ID: {replacement.order_id}")
+
+# Track the replacement the same way as any placed order
+filled = await replacement.wait_for_fill(timeout=60)
+print(f"Filled at ${filled.average_price}")
+```
+
 ### Async Price Subscriptions
 
 The async client exposes `client.price_stream`, an `AsyncPriceStream` instance backed by per-subscription `asyncio.Task`s. No background threads are used.
@@ -890,6 +954,7 @@ See `example.py` for a complete trading workflow example that demonstrates:
 - Performing preflight calculations
 - Placing orders
 - Checking order status
+- Cancel and replace an open order
 - Getting portfolio information
 - Retrieving account history
 
@@ -916,6 +981,7 @@ See `example_async_client.py` for a full async example that demonstrates:
 - API-key authentication with the async context manager
 - Concurrent account + portfolio fetch with `asyncio.gather`
 - One-off quote snapshot before subscribing
+- Cancel and replace an open order (commented-out template; crypto/options only)
 - Two independent async price subscriptions (one per symbol, 1-second polling)
 - Async callbacks with bid-ask spread and percentage-change tracking
 - Mid-run pause and resume of an individual subscription
