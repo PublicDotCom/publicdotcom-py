@@ -1,7 +1,7 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
 ![Version](https://img.shields.io/badge/version-0.1.10-brightgreen?style=flat-square)
-![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
 # Public API Python SDK
