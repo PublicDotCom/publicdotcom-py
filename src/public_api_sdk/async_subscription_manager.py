@@ -43,6 +43,8 @@ class AsyncPriceSubscriptionManager:
         self._subscriptions: Dict[str, Subscription] = {}
         self._tasks: Dict[str, "asyncio.Task[Any]"] = {}
         self._last_quotes: Dict[str, Quote] = {}
+        # consecutive failure counter per subscription (not stored in Pydantic model)
+        self._consecutive_failures: Dict[str, int] = {}
 
     async def subscribe(
         self,
@@ -93,6 +95,7 @@ class AsyncPriceSubscriptionManager:
             return False
 
         sub = self._subscriptions.pop(subscription_id)
+        self._consecutive_failures.pop(subscription_id, None)
 
         task = self._tasks.pop(subscription_id, None)
         if task and not task.done():
@@ -201,7 +204,7 @@ class AsyncPriceSubscriptionManager:
             if not sub:
                 break
 
-            if sub.status == SubscriptionStatus.ACTIVE:
+            if sub.status in (SubscriptionStatus.ACTIVE, SubscriptionStatus.DEGRADED):
                 await self._poll_subscription(sub)
 
             # re-read config so frequency changes take effect immediately
@@ -220,8 +223,43 @@ class AsyncPriceSubscriptionManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("Error polling subscription %s: %s", subscription.id, exc)
+            # All retries exhausted — track consecutive failures
+            self._consecutive_failures[subscription.id] = (
+                self._consecutive_failures.get(subscription.id, 0) + 1
+            )
+            if (
+                self._consecutive_failures[subscription.id]
+                >= subscription.config.max_consecutive_failures
+                and subscription.status == SubscriptionStatus.ACTIVE
+            ):
+                subscription.status = SubscriptionStatus.DEGRADED
+                logger.warning(
+                    "Subscription %s is DEGRADED after %d consecutive failures",
+                    subscription.id,
+                    self._consecutive_failures[subscription.id],
+                )
+                if subscription.config.on_error:
+                    try:
+                        if asyncio.iscoroutinefunction(subscription.config.on_error):
+                            await subscription.config.on_error(subscription.id, exc)
+                        else:
+                            subscription.config.on_error(subscription.id, exc)
+                    except Exception:  # pylint: disable=broad-except
+                        pass
+            else:
+                logger.error(
+                    "Error polling subscription %s: %s", subscription.id, exc
+                )
             return
+
+        # Success — reset failure counter; restore DEGRADED → ACTIVE
+        if self._consecutive_failures.get(subscription.id, 0) > 0:
+            self._consecutive_failures[subscription.id] = 0
+            if subscription.status == SubscriptionStatus.DEGRADED:
+                subscription.status = SubscriptionStatus.ACTIVE
+                logger.info(
+                    "Subscription %s recovered from DEGRADED state", subscription.id
+                )
 
         if not quotes:
             return
@@ -249,9 +287,14 @@ class AsyncPriceSubscriptionManager:
         instruments: List[OrderInstrument],
         config: SubscriptionConfig,
     ) -> List[Quote]:
-        """Call get_quotes_func with exponential backoff retry."""
+        """Call get_quotes_func with exponential backoff retry.
+
+        Raises the last exception when all retries are exhausted so that the
+        caller can track consecutive failures.
+        """
         retries = 0
         backoff = 1.0
+        last_exc: Optional[Exception] = None
 
         while retries <= config.max_retries:
             try:
@@ -259,11 +302,12 @@ class AsyncPriceSubscriptionManager:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                last_exc = exc
                 logger.error(
                     "Error fetching quotes (attempt %d): %s", retries + 1, exc
                 )
                 if not config.retry_on_error or retries >= config.max_retries:
-                    return []
+                    break
 
                 retries += 1
                 if config.exponential_backoff:
@@ -272,6 +316,8 @@ class AsyncPriceSubscriptionManager:
                 else:
                     await asyncio.sleep(1)
 
+        if last_exc is not None:
+            raise last_exc
         return []
 
     def _detect_price_change(

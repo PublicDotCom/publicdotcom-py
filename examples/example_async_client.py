@@ -100,7 +100,7 @@ class QuoteTracker:
         return (
             f"{self.symbol:>5}: {self.update_count:3} updates | "
             f"last=${self.last_price:>9.2f} | "
-            f"range=[${ self.min_price:.2f}, ${self.max_price:.2f}] | "
+            f"range=[${self.min_price:.2f}, ${self.max_price:.2f}] | "
             f"avg spread=${avg_spread:.4f} | "
             f"significant moves: {self.significant_moves}"
         )
@@ -187,10 +187,13 @@ async def main() -> None:
         print("\nFetching initial quotes for MSFT and NVDA...")
         quotes = await client.get_quotes([MSFT, NVDA])
         for q in quotes:
-            spread = (q.ask or Decimal(0)) - (q.bid or Decimal(0))
+            last = q.last or Decimal(0)
+            bid = q.bid or Decimal(0)
+            ask = q.ask or Decimal(0)
+            spread = ask - bid
             print(
-                f"  {q.instrument.symbol:<5}  last=${q.last:.2f}  "
-                f"bid=${q.bid:.2f}  ask=${q.ask:.2f}  spread=${spread:.4f}"
+                f"  {q.instrument.symbol:<5}  last=${last:.2f}  "
+                f"bid=${bid:.2f}  ask=${ask:.2f}  spread=${spread:.4f}"
             )
 
         # --- Cancel and replace an existing order -------------------------
@@ -222,12 +225,14 @@ async def main() -> None:
             msft_tracker.record(change)
             direction = _price_direction(change)
             price = change.new_quote.last or Decimal(0)
-            spread = (change.new_quote.ask or Decimal(0)) - (change.new_quote.bid or Decimal(0))
+            bid = change.new_quote.bid or Decimal(0)
+            ask = change.new_quote.ask or Decimal(0)
+            spread = ask - bid
             pct = _pct_change(change)
             pct_str = f"  ({pct:+.3f}%)" if pct is not None else ""
             print(
                 f"[MSFT] {direction} ${price:>9.2f}  "
-                f"bid=${change.new_quote.bid:.2f}  ask=${change.new_quote.ask:.2f}  "
+                f"bid=${bid:.2f}  ask=${ask:.2f}  "
                 f"spread=${spread:.4f}{pct_str}"
             )
             if pct is not None and abs(pct) >= Decimal("0.5"):
@@ -237,12 +242,14 @@ async def main() -> None:
             nvda_tracker.record(change)
             direction = _price_direction(change)
             price = change.new_quote.last or Decimal(0)
-            spread = (change.new_quote.ask or Decimal(0)) - (change.new_quote.bid or Decimal(0))
+            bid = change.new_quote.bid or Decimal(0)
+            ask = change.new_quote.ask or Decimal(0)
+            spread = ask - bid
             pct = _pct_change(change)
             pct_str = f"  ({pct:+.3f}%)" if pct is not None else ""
             print(
                 f"[NVDA] {direction} ${price:>9.2f}  "
-                f"bid=${change.new_quote.bid:.2f}  ask=${change.new_quote.ask:.2f}  "
+                f"bid=${bid:.2f}  ask=${ask:.2f}  "
                 f"spread=${spread:.4f}{pct_str}"
             )
             if pct is not None and abs(pct) >= Decimal("0.5"):

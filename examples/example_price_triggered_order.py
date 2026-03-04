@@ -27,6 +27,10 @@ from public_api_sdk import (
 )
 
 
+# Set DRY_RUN=false to enable live order placement. Defaults to true (safe).
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+
+
 class PriceTriggeredOrderBot:
     """A bot that monitors price and places an order when a threshold is reached."""
 
@@ -36,11 +40,13 @@ class PriceTriggeredOrderBot:
         symbol: str,
         target_price: Decimal,
         order_quantity: Decimal,
+        dry_run: bool = True,
     ):
         self.client = client
         self.symbol = symbol
         self.target_price = target_price
         self.order_quantity = order_quantity
+        self.dry_run = dry_run
         self.order_side = OrderSide.BUY
         self.order_placed = False
         self.current_order: Optional[NewOrder] = None
@@ -89,8 +95,16 @@ class PriceTriggeredOrderBot:
 
         print(
             f"\n🚀 Placing {self.order_side.value} market order for "
-            "{self.order_quantity} shares of {self.symbol}..."
+            f"{self.order_quantity} shares of {self.symbol}..."
         )
+
+        if self.dry_run:
+            print(
+                f"[DRY_RUN] Would place {self.order_side.value} MARKET order: "
+                f"{self.order_quantity} share(s) of {self.symbol}.\n"
+                "          Set DRY_RUN=false to enable live order placement."
+            )
+            return
 
         try:
             order_request = OrderRequest(
@@ -139,8 +153,10 @@ class PriceTriggeredOrderBot:
         if update.new_status == OrderStatus.FILLED:
             print("\n🎉 Order FILLED!")
             print(f"   Filled Quantity: {update.order.filled_quantity}")
-            print(f"   Amount: ${update.order.notional_value:.2f}")
-            print(f"   Average Price: ${update.order.average_price:.2f}")
+            notional = update.order.notional_value or Decimal(0)
+            avg_price = update.order.average_price or Decimal(0)
+            print(f"   Amount: ${notional:.2f}")
+            print(f"   Average Price: ${avg_price:.2f}")
 
             # stop price monitoring once order is filled
             if self.price_subscription_id:
@@ -199,8 +215,12 @@ def main() -> None:
     print("=" * 60)
     print("\nThis example will:")
     print("1. Monitor the price of a stock")
-    print("2. Place a market order when the price reaches a target")
-    print("3. Track the order until it's filled")
+    if DRY_RUN:
+        print("2. [DRY_RUN] Print what order would be placed (no actual trade)")
+        print("   Set DRY_RUN=false to enable live order placement.")
+    else:
+        print("2. Place a market order when the price reaches a target")
+        print("3. Track the order until it's filled")
     print("=" * 60)
 
     load_dotenv()
@@ -222,6 +242,7 @@ def main() -> None:
         symbol=SYMBOL,
         target_price=TARGET_PRICE,
         order_quantity=ORDER_QUANTITY,
+        dry_run=DRY_RUN,
     )
 
     try:

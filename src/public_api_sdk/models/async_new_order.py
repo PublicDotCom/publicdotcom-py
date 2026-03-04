@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 from .new_order import OrderSubscriptionConfig, OrderUpdateCallback, WaitTimeoutError
 from .order import Order, OrderStatus
@@ -179,27 +179,65 @@ class AsyncNewOrder:
 
             await asyncio.sleep(polling_interval)
 
-    async def wait_for_fill(self, timeout: Optional[float] = None) -> Order:
+    async def wait_for_fill(
+        self,
+        timeout: Optional[float] = None,
+        on_partial_fill: Optional[Callable[..., None]] = None,
+        polling_interval: float = 1.0,
+    ) -> Order:
         """Poll until the order is filled.
 
         Args:
             timeout: Maximum seconds to wait; None means wait indefinitely
+            on_partial_fill: Optional callback invoked each time the order
+                status is ``PARTIALLY_FILLED``.  May be sync or async.
+                Receives the current :class:`Order` as its only argument.
+            polling_interval: How often to check status in seconds (default 1s)
 
         Returns:
             Order details once filled
 
         Raises:
-            WaitTimeoutError: If timeout is exceeded
+            WaitTimeoutError: If timeout is exceeded.  The exception's
+                ``current_order`` attribute holds the last-seen order state,
+                which may have a partial fill quantity.
 
         Example::
 
+            async def on_partial(order):
+                print(f"Partial fill: {order.filled_quantity} shares")
+
             try:
-                order = await new_order.wait_for_fill(timeout=60)
-                print(f"Filled at {order.average_price}")
-            except WaitTimeoutError:
-                print("Order not filled within timeout")
+                order = await new_order.wait_for_fill(timeout=60, on_partial_fill=on_partial)
+                print(f"Filled")
+            except WaitTimeoutError as e:
+                filled = e.current_order.filled_quantity if e.current_order else 0
+                print(f"Timed out — {filled} shares filled so far")
         """
-        return await self.wait_for_status(OrderStatus.FILLED, timeout=timeout)
+        start = time.monotonic()
+        last_seen_order: Optional[Order] = None
+
+        while True:
+            order = await self.get_details()
+            last_seen_order = order
+
+            if order.status == OrderStatus.FILLED:
+                return order
+
+            if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
+                if asyncio.iscoroutinefunction(on_partial_fill):
+                    await on_partial_fill(order)
+                else:
+                    on_partial_fill(order)
+
+            if timeout is not None and time.monotonic() - start >= timeout:
+                raise WaitTimeoutError(
+                    f"Order {self._order_id} did not fill within {timeout}s. "
+                    f"Current status: {order.status}",
+                    current_order=last_seen_order,
+                )
+
+            await asyncio.sleep(polling_interval)
 
     async def wait_for_terminal_status(self, timeout: Optional[float] = None) -> Order:
         """Poll until the order reaches any terminal status.

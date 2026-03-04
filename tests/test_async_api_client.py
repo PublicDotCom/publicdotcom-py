@@ -352,14 +352,14 @@ class TestAsyncApiClientRetry:
             await self.client.get("/endpoint")
 
     @pytest.mark.asyncio
-    async def test_post_does_not_retry_on_500(self) -> None:
-        """POST is not a safe method — 5xx should NOT trigger automatic retry."""
+    async def test_post_retries_on_500(self) -> None:
+        """POST should now retry on 5xx responses (all methods retry on transient errors)."""
         fail = _make_httpx_response(500, data={"message": "error"})
         self.client._client.request = AsyncMock(return_value=fail)
         with pytest.raises(ServerError):
             await self.client.post("/endpoint", json_data={})
-        # only one call; no retry for POST
-        assert self.client._client.request.call_count == 1
+        # max_retries=2 in setup_method → 3 total attempts
+        assert self.client._client.request.call_count == 3
 
     @pytest.mark.asyncio
     async def test_transport_error_retried_for_get(self) -> None:

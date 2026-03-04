@@ -14,14 +14,20 @@ from public_api_sdk import (
     OrderExpirationRequest,
     OrderInstrument,
     OrderSide,
+    OrderStatus,
     OrderType,
     OrderRequest,
     TimeInForce,
-    OrderStatus,
     OrderUpdate,
     OrderSubscriptionConfig,
     WaitTimeoutError,
 )
+
+# load_dotenv must run before reading DRY_RUN so .env values are visible
+load_dotenv()
+
+# Set DRY_RUN=false to enable live order placement. Defaults to true (safe).
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
 
 
 def on_order_update(update: OrderUpdate) -> None:
@@ -46,8 +52,6 @@ async def async_order_callback(update: OrderUpdate) -> None:
 def example_subscription_with_callback() -> None:
     print("\n=== Example 1: Order Subscription with Callback ===\n")
 
-    load_dotenv()
-
     api_secret_key = os.environ.get("API_SECRET_KEY")
     if not api_secret_key:
         raise ValueError("API_SECRET_KEY environment variable is required")
@@ -62,6 +66,22 @@ def example_subscription_with_callback() -> None:
             default_account_number=os.environ.get("DEFAULT_ACCOUNT_NUMBER"),
         ),
     )
+
+    # Subscription config used when DRY_RUN=false
+    subscription_config = OrderSubscriptionConfig(
+        polling_frequency_seconds=2.0,  # check every 2 seconds
+        retry_on_error=True,
+        max_retries=3,
+    )
+
+    if DRY_RUN:
+        print("[DRY_RUN] Would place a LIMIT BUY order for 1 share of AAPL @ $150.00")
+        print(f"          Subscription config: polling={subscription_config.polling_frequency_seconds}s, "
+              f"retry={subscription_config.retry_on_error}, max_retries={subscription_config.max_retries}")
+        print("          Would monitor for 10 seconds, then cancel the order.")
+        print("          Set DRY_RUN=false to run this example live.\n")
+        client.close()
+        return
 
     try:
         print("Placing order...")
@@ -81,15 +101,8 @@ def example_subscription_with_callback() -> None:
         )
         print(f"Order placed: {new_order.order_id}\n")
 
-        # subscribe to updates with custom configuration
-        config = OrderSubscriptionConfig(
-            polling_frequency_seconds=2.0,  # check every 2 seconds
-            retry_on_error=True,
-            max_retries=3,
-        )
-
         subscription_id = new_order.subscribe_updates(
-            callback=on_order_update, config=config
+            callback=on_order_update, config=subscription_config
         )
         print(f"Subscribed to order updates (ID: {subscription_id})\n")
 
@@ -112,10 +125,8 @@ def example_subscription_with_callback() -> None:
 
 
 def example_synchronous_wait() -> None:
-    """Example using synchronous wait methods."""
-    print("\n=== Example 2: Synchronous Wait for Order Status ===\n")
-
-    load_dotenv()
+    """Example using synchronous wait methods, including partial fill tracking."""
+    print("\n=== Example 2: Synchronous Wait for Order Fill ===\n")
 
     api_secret_key = os.environ.get("API_SECRET_KEY")
     if not api_secret_key:
@@ -132,8 +143,16 @@ def example_synchronous_wait() -> None:
         ),
     )
 
+    if DRY_RUN:
+        print("[DRY_RUN] Would place a MARKET BUY order for 1 share of AAPL")
+        print("          Would call wait_for_fill(timeout=30, on_partial_fill=...) to block")
+        print("          until FILLED, printing partial fill progress along the way.")
+        print("          On WaitTimeoutError, e.current_order carries the last-seen order state.")
+        print("          Set DRY_RUN=false to run this example live.\n")
+        client.close()
+        return
+
     try:
-        # place an order with a price likely to fill
         print("Placing market order...")
         new_order = client.place_order(
             OrderRequest(
@@ -150,20 +169,25 @@ def example_synchronous_wait() -> None:
         )
         print(f"Order placed: {new_order.order_id}\n")
 
-        # wait for the order to reach terminal status
-        print("Waiting for order to complete (max 30 seconds)...")
-        try:
-            order = new_order.wait_for_terminal_status(timeout=30)
-            print(f"✅ Order completed with status: {order.status}")
+        # Callback fired each time a PARTIALLY_FILLED status is seen while waiting.
+        def on_partial_fill(order) -> None:
+            filled = order.filled_quantity or 0
+            total = order.quantity or 0
+            print(f"   Partial fill: {filled} / {total} shares filled so far")
 
-            if order.status == OrderStatus.FILLED:
-                print(f"   Filled quantity: {order.filled_quantity}")
-                print(f"   Average price: ${order.average_price}")
-            elif order.status == OrderStatus.REJECTED:
-                print(f"   Reject reason: {order.reject_reason}")
+        print("Waiting for order to fill (max 30 seconds)...")
+        try:
+            order = new_order.wait_for_fill(timeout=30, on_partial_fill=on_partial_fill)
+            print(f"Order filled!")
+            print(f"   Filled quantity: {order.filled_quantity}")
+            print(f"   Average price: ${order.average_price}")
         except WaitTimeoutError as e:
-            print(f"⏱️ Timeout: {e}")
-            # get current status
+            # e.current_order holds the last-seen order state — useful for
+            # checking how many shares were filled before the timeout.
+            filled_so_far = (
+                e.current_order.filled_quantity if e.current_order else 0
+            )
+            print(f"Timeout waiting for fill. Filled so far: {filled_so_far}")
             status = new_order.get_status()
             print(f"Current status: {status}")
     finally:
@@ -172,8 +196,6 @@ def example_synchronous_wait() -> None:
 
 def example_async_callback() -> None:
     print("\n=== Example 3: Async Callback ===\n")
-
-    load_dotenv()
 
     api_secret_key = os.environ.get("API_SECRET_KEY")
     if not api_secret_key:
@@ -189,6 +211,17 @@ def example_async_callback() -> None:
             default_account_number=os.environ.get("DEFAULT_ACCOUNT_NUMBER"),
         ),
     )
+
+    subscription_config = OrderSubscriptionConfig(polling_frequency_seconds=1.5)
+
+    if DRY_RUN:
+        print("[DRY_RUN] Would place a LIMIT BUY order for 1 share of AAPL @ $140.00")
+        print(f"          Subscription config: polling={subscription_config.polling_frequency_seconds}s")
+        print("          Would attach an async callback, monitor for 5 seconds,")
+        print("          then cancel and wait_for_status(CANCELLED, timeout=10).")
+        print("          Set DRY_RUN=false to run this example live.\n")
+        client.close()
+        return
 
     try:
         print("Placing order...")
@@ -211,7 +244,7 @@ def example_async_callback() -> None:
         # subscribe with async callback
         subscription_id = new_order.subscribe_updates(
             callback=async_order_callback,
-            config=OrderSubscriptionConfig(polling_frequency_seconds=1.5),
+            config=subscription_config,
         )
         print(f"Subscribed with async callback (ID: {subscription_id})\n")
 
@@ -233,6 +266,10 @@ def example_async_callback() -> None:
 
 
 def main() -> None:
+    if DRY_RUN:
+        print("Running in DRY_RUN mode — no orders will be placed.")
+        print("Set DRY_RUN=false in your environment to enable live trading.\n")
+
     try:
         # Example 1: Callback-based subscription
         example_subscription_with_callback()

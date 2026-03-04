@@ -50,7 +50,21 @@ class OrderSubscriptionConfig(BaseModel):
 
 
 class WaitTimeoutError(Exception):
-    """Raised when waiting for an order status times out."""
+    """Raised when waiting for an order status times out.
+
+    Attributes:
+        current_order: The last-seen :class:`Order` state at the time of
+            timeout, or ``None`` if no poll succeeded before the timeout.
+            Useful for inspecting partial fill quantities on timeout.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        current_order: Optional["Order"] = None,
+    ) -> None:
+        super().__init__(message)
+        self.current_order = current_order
 
 
 class NewOrder:
@@ -226,29 +240,66 @@ class NewOrder:
             # sleep before next check
             time.sleep(polling_interval)
 
-    def wait_for_fill(self, timeout: Optional[float] = None) -> Order:
+    def wait_for_fill(
+        self,
+        timeout: Optional[float] = None,
+        on_partial_fill: Optional[Callable[["Order"], None]] = None,
+        polling_interval: float = 1.0,
+    ) -> "Order":
         """
         Wait for the order to be filled.
 
         Args:
             timeout: Maximum time to wait in seconds (None for no timeout)
+            on_partial_fill: Optional callback invoked each time the order
+                status is ``PARTIALLY_FILLED``.  Receives the current
+                :class:`Order` as its only argument.
+            polling_interval: How often to check status in seconds (default 1s)
 
         Returns:
             Order details when filled
 
         Raises:
-            WaitTimeoutError: If timeout is exceeded
+            WaitTimeoutError: If timeout is exceeded.  The exception's
+                ``current_order`` attribute holds the last-seen order state,
+                which may have a partial fill quantity.
 
         Example:
             ```python
+            def on_partial(order):
+                print(f"Partial fill: {order.filled_quantity} shares")
+
             try:
-                order = new_order.wait_for_fill(timeout=60)
-                print(f"Order filled at {order.average_price}")
-            except WaitTimeoutError:
-                print("Order not filled within timeout")
+                order = new_order.wait_for_fill(timeout=60, on_partial_fill=on_partial)
+                print(f"Order filled")
+            except WaitTimeoutError as e:
+                filled = e.current_order.filled_quantity if e.current_order else 0
+                print(f"Timed out — {filled} shares filled so far")
             ```
         """
-        return self.wait_for_status(OrderStatus.FILLED, timeout=timeout)
+        start_time = time.time()
+        last_seen_order: Optional["Order"] = None
+
+        while True:
+            order = self.get_details()
+            last_seen_order = order
+
+            if order.status == OrderStatus.FILLED:
+                return order
+
+            if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
+                on_partial_fill(order)
+
+            if timeout is not None:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    raise WaitTimeoutError(
+                        f"Order {self._order_id} did not fill within {timeout}s. "
+                        f"Current status: {order.status}",
+                        current_order=last_seen_order,
+                    )
+
+            time.sleep(polling_interval)
 
     def wait_for_terminal_status(self, timeout: Optional[float] = None) -> Order:
         """

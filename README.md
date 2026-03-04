@@ -43,8 +43,7 @@ Inside of the examples folder are multiple python scripts showcasing specific wa
 ## Quick Start
 
 ```python
-from public_api_sdk import PublicApiClient, PublicApiClientConfiguration
-from public_api_sdk.auth_config import ApiKeyAuthConfig
+from public_api_sdk import PublicApiClient, PublicApiClientConfiguration, ApiKeyAuthConfig
 
 # Initialize the client
 client = PublicApiClient(
@@ -350,8 +349,9 @@ preflight_request = PreflightRequest(
 )
 
 preflight_response = client.perform_preflight_calculation(preflight_request)
-print(f"Estimated commission: ${preflight_response.estimated_commission}")
-print(f"Order value: ${preflight_response.order_value}")
+commission = preflight_response.estimated_commission or 0
+print(f"Estimated commission: ${commission:.2f}")
+print(f"Order value: ${preflight_response.order_value:.2f}")
 ```
 
 ##### Multi-Leg Preflight
@@ -400,12 +400,14 @@ print(f"\nLegs:")
 for i, leg in enumerate(preflight_multi.legs, 1):
     print(f"  {i}. {leg.side.value} {leg.instrument.symbol}")
 
-cost = float(preflight_result.estimated_cost)
+cost = float(preflight_result.estimated_cost or 0)
 cost_label = "Debit (Cost)" if cost > 0 else "Credit"
 print(f"\nCost Analysis:")
 print(f"  {cost_label}: ${abs(cost):.2f}")
-print(f"  Commission: ${preflight_result.estimated_commission}")
-print(f"  Buying Power Required: ${preflight_result.buying_power_requirement}")
+commission = preflight_result.estimated_commission or 0
+bpr = preflight_result.buying_power_requirement or 0
+print(f"  Commission: ${commission:.2f}")
+print(f"  Buying Power Required: ${bpr:.2f}")
 
 print("\n" + "="*70)
 ```
@@ -429,9 +431,10 @@ result = client.strategy_preflight.credit_spread(
     quantity=1,
     limit_price=Decimal("1.50"),  # minimum credit to accept (positive value)
 )
-cost = float(result.estimated_cost)
+cost = float(result.estimated_cost or 0)
+bpr = result.buying_power_requirement or 0
 print(f"Estimated credit: ${abs(cost):.2f}")
-print(f"Buying power required: ${result.buying_power_requirement}")
+print(f"Buying power required: ${bpr:.2f}")
 ```
 
 **PUT credit spread (Bull Put Spread)** — profits if the underlying stays *above* the sell strike at expiry.
@@ -633,12 +636,9 @@ from public_api_sdk import (
 )
 
 # initialize client
-config = PublicApiClientConfiguration(
-    default_account_number="YOUR_ACCOUNT"
-)
 client = PublicApiClient(
-    api_secret_key="YOUR_KEY",
-    config=config
+    ApiKeyAuthConfig(api_secret_key="YOUR_KEY"),
+    config=PublicApiClientConfiguration(default_account_number="YOUR_ACCOUNT"),
 )
 
 # define callback
@@ -651,7 +651,7 @@ instruments = [
     OrderInstrument(symbol="GOOGL", type=InstrumentType.EQUITY),
 ]
 
-subscription_id = client.subscribe_to_price_changes(
+subscription_id = client.price_stream.subscribe(
     instruments=instruments,
     callback=on_price_change,
     config=SubscriptionConfig(polling_frequency_seconds=2.0)
@@ -660,7 +660,7 @@ subscription_id = client.subscribe_to_price_changes(
 # ...
 
 # unsubscribe
-client.unsubscribe(subscription_id)
+client.price_stream.unsubscribe(subscription_id)
 ```
 
 #### Async Callbacks
@@ -670,7 +670,7 @@ async def async_price_handler(price_change: PriceChange):
     # Async processing
     await process_price_change(price_change)
 
-client.subscribe_to_price_changes(
+client.price_stream.subscribe(
     instruments=instruments,
     callback=async_price_handler  # Async callbacks are automatically detected
 )
@@ -680,13 +680,13 @@ client.subscribe_to_price_changes(
 
 ```python
 # update polling frequency
-client.set_polling_frequency(subscription_id, 5.0)
+client.price_stream.set_polling_frequency(subscription_id, 5.0)
 
 # get all active subscriptions
-active = client.get_active_subscriptions()
+active = client.price_stream.get_active_subscriptions()
 
 # unsubscribe all
-client.unsubscribe_all()
+client.price_stream.unsubscribe_all()
 ```
 
 #### Custom Configuration
@@ -699,7 +699,7 @@ config = SubscriptionConfig(
     exponential_backoff=True        # use exponential backoff for retries
 )
 
-subscription_id = client.subscribe_to_price_changes(
+subscription_id = client.price_stream.subscribe(
     instruments=instruments,
     callback=on_price_change,
     config=config
@@ -836,7 +836,7 @@ print(f"Placed: {order.order_id}")
 #### AsyncNewOrder — waiting for a fill
 
 ```python
-from public_api_sdk.models.new_order import WaitTimeoutError
+from public_api_sdk import WaitTimeoutError
 
 try:
     # Poll until filled; raises WaitTimeoutError after 60 seconds
@@ -998,8 +998,9 @@ preflight = await client.perform_preflight_calculation(
         limit_price=Decimal("227.50"),
     )
 )
-print(f"Estimated commission: ${preflight.estimated_commission}")
-print(f"Order value: ${preflight.order_value}")
+commission = preflight.estimated_commission or 0
+print(f"Estimated commission: ${commission:.2f}")
+print(f"Order value: ${preflight.order_value:.2f}")
 ```
 
 ### Strategy Preflight Helpers (Async)

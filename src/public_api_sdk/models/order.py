@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
@@ -557,6 +558,16 @@ class OrderStatus(str, Enum):
     PENDING_CANCEL = "PENDING_CANCEL"
     EXPIRED = "EXPIRED"
     REPLACED = "REPLACED"
+    UNKNOWN = "UNKNOWN"  # fallback for unrecognised API statuses
+
+    @classmethod
+    def _missing_(cls, value: object) -> "OrderStatus":
+        logging.getLogger(__name__).warning(
+            "Unrecognised OrderStatus %r — defaulting to UNKNOWN. "
+            "Update the SDK to get the correct status name.",
+            value,
+        )
+        return cls.UNKNOWN
 
 
 class LegInstrumentType(str, Enum):

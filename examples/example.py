@@ -27,6 +27,10 @@ from public_api_sdk import (
 # load env variables from .env file
 load_dotenv()
 
+# Set DRY_RUN=false to enable live order placement. Defaults to true (safe).
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+
+
 def main() -> None:
     api_secret_key = os.environ.get("API_SECRET_KEY")
     if not api_secret_key:
@@ -106,49 +110,55 @@ def main() -> None:
         print(f"Preflight response: {preflight_response}\n\n")
 
         # place a equity order
-        print("Placing a equity order...")
-        new_order = public_api_client.place_order(
-            OrderRequest(
-                order_id=str(uuid.uuid4()),
-                instrument=OrderInstrument(
-                    symbol="AAPL",
-                    type=InstrumentType.EQUITY,
+        if DRY_RUN:
+            print(
+                "[DRY_RUN] Skipping order placement, status fetch, and cancel-and-replace.\n"
+                "          Set DRY_RUN=false in your environment to enable live trading.\n"
+            )
+        else:
+            print("Placing a equity order...")
+            new_order = public_api_client.place_order(
+                OrderRequest(
+                    order_id=str(uuid.uuid4()),
+                    instrument=OrderInstrument(
+                        symbol="AAPL",
+                        type=InstrumentType.EQUITY,
+                    ),
+                    order_side=OrderSide.BUY,
+                    order_type=OrderType.LIMIT,
+                    expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+                    quantity=Decimal('1'),
+                    limit_price=Decimal(227.12),
+                    # Optional: specify market session (CORE for regular hours, EXTENDED for pre/after market)
+                    # equity_market_session=EquityMarketSession.CORE,
                 ),
-                order_side=OrderSide.BUY,
-                order_type=OrderType.LIMIT,
-                expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=Decimal('1'),
-                limit_price=Decimal(227.12),
-                # Optional: specify market session (CORE for regular hours, EXTENDED for pre/after market)
-                # equity_market_session=EquityMarketSession.CORE,
-            ),
-        )
-        print(f"Order placed: {new_order.order_id}\n\n")
+            )
+            print(f"Order placed: {new_order.order_id}\n\n")
 
-        # get order status and details
-        order_response = public_api_client.get_order(
-            order_id=new_order.order_id,
-            # account_id="YOUR_ACCOUNT"  # optional if default set
-        )
-        print(f"Order status: {order_response.status}\n\n")
-        order_details = order_response
-        print(f"Order details: {order_details}\n\n")
-
-        # cancel and replace the order
-        # NOTE: cancel-and-replace currently supports crypto (quantity-based) orders
-        # and options orders only. Equity support is coming soon.
-        print("Cancelling and replacing the order with an updated limit price...")
-        replacement = public_api_client.cancel_and_replace_order(
-            CancelAndReplaceRequest(
+            # get order status and details
+            order_response = public_api_client.get_order(
                 order_id=new_order.order_id,
-                request_id=str(uuid.uuid4()),
-                order_type=OrderType.LIMIT,
-                expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                quantity=Decimal("1"),
-                limit_price=Decimal("228.00"),
-            ),
-        )
-        print(f"Replacement order ID: {replacement.order_id}\n\n")
+                # account_id="YOUR_ACCOUNT"  # optional if default set
+            )
+            print(f"Order status: {order_response.status}\n\n")
+            order_details = order_response
+            print(f"Order details: {order_details}\n\n")
+
+            # cancel and replace the order
+            # NOTE: cancel-and-replace currently supports crypto (quantity-based) orders
+            # and options orders only. Equity support is coming soon.
+            print("Cancelling and replacing the order with an updated limit price...")
+            replacement = public_api_client.cancel_and_replace_order(
+                CancelAndReplaceRequest(
+                    order_id=new_order.order_id,
+                    request_id=str(uuid.uuid4()),
+                    order_type=OrderType.LIMIT,
+                    expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+                    quantity=Decimal("1"),
+                    limit_price=Decimal("228.00"),
+                ),
+            )
+            print(f"Replacement order ID: {replacement.order_id}\n\n")
 
         # get portfolio
         print("Getting portfolio...")

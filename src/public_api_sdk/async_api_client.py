@@ -17,8 +17,6 @@ from .exceptions import (
 )
 
 _RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
-# Only retry idempotent methods on bad status codes (mirrors sync urllib3.Retry behaviour)
-_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 class AsyncApiClient:
@@ -136,8 +134,7 @@ class AsyncApiClient:
                 continue
 
             should_retry_status = (
-                method.upper() in _SAFE_METHODS
-                and response.status_code in _RETRY_STATUS_CODES
+                response.status_code in _RETRY_STATUS_CODES
                 and retries < self._max_retries
             )
             if should_retry_status:
