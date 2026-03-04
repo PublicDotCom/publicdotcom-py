@@ -102,13 +102,13 @@ async def advanced_subscription_example() -> None:
                     print(f"⚠️  ALERT: {symbol} moved {pct_change:.2f}%!")
 
         # show current state
+        bid = price_change.new_quote.bid or Decimal(0)
+        ask = price_change.new_quote.ask or Decimal(0)
+        bid_size = price_change.new_quote.bid_size or 0
+        ask_size = price_change.new_quote.ask_size or 0
         print(f"{symbol}: ${new_price:.2f}")
-        print(
-            f"  Bid: ${price_change.new_quote.bid:.2f} x {price_change.new_quote.bid_size}"
-        )
-        print(
-            f"  Ask: ${price_change.new_quote.ask:.2f} x {price_change.new_quote.ask_size}"
-        )
+        print(f"  Bid: ${bid:.2f} x {bid_size}")
+        print(f"  Ask: ${ask:.2f} x {ask_size}")
 
         # simulate async processing
         await asyncio.sleep(0.1)
@@ -118,7 +118,16 @@ async def advanced_subscription_example() -> None:
         OrderInstrument(symbol="QQQ", type=InstrumentType.EQUITY),
     ]
 
-    # create subscription with retry configuration
+    # Called when the subscription transitions to DEGRADED (10 consecutive failures).
+    # The subscription keeps polling and will self-heal when connectivity returns.
+    def on_subscription_error(sub_id: str, exc: Exception) -> None:
+        print(
+            f"WARNING: subscription {sub_id[:8]}... is DEGRADED — "
+            f"polling has been failing consistently ({exc}). "
+            "It will recover automatically when connectivity is restored."
+        )
+
+    # create subscription with retry and degradation configuration
     subscription_id = client.price_stream.subscribe(
         instruments=instruments,
         callback=on_price_change_async,
@@ -127,6 +136,8 @@ async def advanced_subscription_example() -> None:
             retry_on_error=True,
             max_retries=5,
             exponential_backoff=True,
+            max_consecutive_failures=10,  # mark DEGRADED after 10 straight failures
+            on_error=on_subscription_error,  # called once when DEGRADED is entered
         ),
     )
 
@@ -168,9 +179,8 @@ def multiple_subscriptions_example() -> None:
 
     # fast-moving stocks with high frequency polling
     def on_fast_stocks_change(price_change: PriceChange) -> None:
-        print(
-            f"[FAST] {price_change.instrument.symbol}: ${price_change.new_quote.last:.2f}"
-        )
+        last = price_change.new_quote.last or Decimal(0)
+        print(f"[FAST] {price_change.instrument.symbol}: ${last:.2f}")
 
     fast_instruments = [
         OrderInstrument(symbol="TSLA", type=InstrumentType.EQUITY),
@@ -186,9 +196,8 @@ def multiple_subscriptions_example() -> None:
 
     # slower-moving ETFs with lower frequency
     def on_slow_change(price_change: PriceChange) -> None:
-        print(
-            f"[SLOW] {price_change.instrument.symbol}: ${price_change.new_quote.last:.2f}"
-        )
+        last = price_change.new_quote.last or Decimal(0)
+        print(f"[SLOW] {price_change.instrument.symbol}: ${last:.2f}")
 
     etf_instruments = [
         OrderInstrument(symbol="VTI", type=InstrumentType.EQUITY),
@@ -204,9 +213,8 @@ def multiple_subscriptions_example() -> None:
 
     # medium frequency
     def on_medium_frequency_change(price_change: PriceChange) -> None:
-        print(
-            f"[MED] {price_change.instrument.symbol}: ${price_change.new_quote.last:.2f}"
-        )
+        last = price_change.new_quote.last or Decimal(0)
+        print(f"[MED] {price_change.instrument.symbol}: ${last:.2f}")
 
     medium_frequency_instruments = [
         OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY),

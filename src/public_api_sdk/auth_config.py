@@ -4,7 +4,9 @@ from .auth_provider import ApiKeyAuthProvider, OAuthAuthProvider
 
 if TYPE_CHECKING:
     from .api_client import ApiClient
+    from .async_api_client import AsyncApiClient
     from .auth_provider import AuthProvider
+    from .async_auth_provider import AsyncAuthProvider
 
 
 class AuthConfig(Protocol):  # pylint: disable=too-few-public-methods
@@ -18,6 +20,20 @@ class AuthConfig(Protocol):  # pylint: disable=too-few-public-methods
 
         Returns:
             Configured auth provider instance
+        """
+
+
+class AsyncAuthConfig(Protocol):  # pylint: disable=too-few-public-methods
+    """Protocol for async authentication configuration."""
+
+    def create_async_provider(self, api_client: "AsyncApiClient") -> "AsyncAuthProvider":
+        """Create an async auth provider instance with the given async API client.
+
+        Args:
+            api_client: Async API client for making HTTP requests
+
+        Returns:
+            Configured async auth provider instance
         """
 
 
@@ -39,6 +55,15 @@ class ApiKeyAuthConfig:  # pylint: disable=too-few-public-methods
 
     def create_provider(self, api_client: "ApiClient") -> "AuthProvider":
         return ApiKeyAuthProvider(
+            api_client=api_client,
+            api_secret_key=self.api_secret_key,
+            validity_minutes=self.validity_minutes,
+        )
+
+    def create_async_provider(self, api_client: "AsyncApiClient") -> "AsyncAuthProvider":
+        from .async_auth_provider import AsyncApiKeyAuthProvider
+
+        return AsyncApiKeyAuthProvider(
             api_client=api_client,
             api_secret_key=self.api_secret_key,
             validity_minutes=self.validity_minutes,
@@ -79,6 +104,20 @@ class OAuthAuthConfig:  # pylint: disable=too-few-public-methods
 
     def create_provider(self, api_client: "ApiClient") -> "AuthProvider":
         return OAuthAuthProvider(
+            api_client=api_client,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            redirect_uri=self.redirect_uri,
+            scope=self.scope,
+            use_pkce=self.use_pkce,
+            authorization_base_url=self.authorization_base_url,
+            token_url=self.token_url,
+        )
+
+    def create_async_provider(self, api_client: "AsyncApiClient") -> "AsyncAuthProvider":
+        from .async_auth_provider import AsyncOAuthAuthProvider
+
+        return AsyncOAuthAuthProvider(
             api_client=api_client,
             client_id=self.client_id,
             client_secret=self.client_secret,

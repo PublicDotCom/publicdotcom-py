@@ -1,4 +1,4 @@
-"""Tests for OrderRequest and PreflightRequest validation."""
+"""Tests for OrderRequest, PreflightRequest, and CancelAndReplaceRequest validation."""
 
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
@@ -6,6 +6,7 @@ from typing import Any, Dict, Type, Union
 import pytest
 
 from public_api_sdk.models.order import (
+    CancelAndReplaceRequest,
     OrderRequest,
     PreflightRequest,
     OrderInstrument,
@@ -429,3 +430,107 @@ class TestSharedValidation:
                 quantity=100,
                 limit_price=Decimal("150.00"),
             )
+
+
+# ---------------------------------------------------------------------------
+# CancelAndReplaceRequest validation
+# ---------------------------------------------------------------------------
+
+
+_ORDER_UUID = "550e8400-e29b-41d4-a716-446655440000"
+_REQUEST_UUID = "85718cfb-32f4-4c57-976b-6060b94bbaf9"
+
+
+class TestCancelAndReplaceRequestValidation:
+    def setup_method(self) -> None:
+        self.base_expiration = OrderExpirationRequest(time_in_force=TimeInForce.DAY)
+
+    def _make_request(self, **kwargs: Any) -> CancelAndReplaceRequest:
+        defaults: Dict[str, Any] = {
+            "order_id": _ORDER_UUID,
+            "request_id": _REQUEST_UUID,
+            "order_type": OrderType.LIMIT,
+            "expiration": self.base_expiration,
+            "limit_price": Decimal("150.00"),
+        }
+        defaults.update(kwargs)
+        return CancelAndReplaceRequest(**defaults)
+
+    def test_valid_construction(self) -> None:
+        req = self._make_request()
+        assert req.order_id == _ORDER_UUID
+        assert req.request_id == _REQUEST_UUID
+        assert req.order_type == OrderType.LIMIT
+
+    def test_optional_fields_can_be_omitted(self) -> None:
+        req = CancelAndReplaceRequest(
+            order_id=_ORDER_UUID,
+            request_id=_REQUEST_UUID,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+        )
+        assert req.quantity is None
+        assert req.limit_price is None
+        assert req.stop_price is None
+
+    def test_invalid_order_id_uuid_raises(self) -> None:
+        with pytest.raises(ValueError, match="order_id must be a valid UUID"):
+            self._make_request(order_id="not-a-uuid")
+
+    def test_invalid_request_id_uuid_raises(self) -> None:
+        with pytest.raises(ValueError, match="request_id must be a valid UUID"):
+            self._make_request(request_id="not-a-uuid")
+
+    def test_serialization_uses_camel_case_keys(self) -> None:
+        req = self._make_request(
+            quantity=Decimal("10"),
+            limit_price=Decimal("150.00"),
+            stop_price=Decimal("145.00"),
+        )
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert "orderId" in data
+        assert "requestId" in data
+        assert "orderType" in data
+        assert "limitPrice" in data
+        assert "stopPrice" in data
+        assert "order_id" not in data
+        assert "request_id" not in data
+
+    def test_quantity_serialized_with_five_decimal_places(self) -> None:
+        req = self._make_request(quantity=Decimal("10"))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["quantity"] == "10.00000"
+
+    def test_limit_price_serialized_with_two_decimal_places(self) -> None:
+        req = self._make_request(limit_price=Decimal("150"))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["limitPrice"] == "150.00"
+
+    def test_stop_price_serialized_with_two_decimal_places(self) -> None:
+        req = self._make_request(stop_price=Decimal("145"))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["stopPrice"] == "145.00"
+
+    def test_order_type_serialized_as_string(self) -> None:
+        req = self._make_request(order_type=OrderType.STOP_LIMIT)
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["orderType"] == "STOP_LIMIT"
+
+    def test_populate_by_name_allows_python_field_names(self) -> None:
+        req = CancelAndReplaceRequest(
+            order_id=_ORDER_UUID,
+            request_id=_REQUEST_UUID,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+        )
+        assert req.order_id == _ORDER_UUID
+
+    def test_accepts_camel_case_aliases(self) -> None:
+        req = CancelAndReplaceRequest(
+            orderId=_ORDER_UUID,
+            requestId=_REQUEST_UUID,
+            orderType=OrderType.MARKET,
+            expiration=self.base_expiration,
+        )
+        assert req.order_id == _ORDER_UUID
+        assert req.request_id == _REQUEST_UUID
