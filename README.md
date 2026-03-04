@@ -1,7 +1,7 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.9-brightgreen?style=flat-square)
-![Python](https://img.shields.io/badge/python-3.8%2B-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.10-brightgreen?style=flat-square)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
 # Public API Python SDK
@@ -43,8 +43,7 @@ Inside of the examples folder are multiple python scripts showcasing specific wa
 ## Quick Start
 
 ```python
-from public_api_sdk import PublicApiClient, PublicApiClientConfiguration
-from public_api_sdk.auth_config import ApiKeyAuthConfig
+from public_api_sdk import PublicApiClient, PublicApiClientConfiguration, ApiKeyAuthConfig
 
 # Initialize the client
 client = PublicApiClient(
@@ -64,6 +63,40 @@ quotes = client.get_quotes([
     OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
 ])
 ```
+
+## Async Quick Start
+
+The SDK ships an `AsyncPublicApiClient` for use in `async`/`await` code. It uses [`httpx`](https://www.python-httpx.org/) as the HTTP transport, so no background threads are needed.
+
+```python
+import asyncio
+from public_api_sdk import (
+    AsyncPublicApiClient,
+    AsyncPublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+    OrderInstrument,
+    InstrumentType,
+)
+
+async def main():
+    async with AsyncPublicApiClient(
+        auth_config=ApiKeyAuthConfig(api_secret_key="INSERT_API_SECRET_KEY"),
+        config=AsyncPublicApiClientConfiguration(
+            default_account_number="INSERT_ACCOUNT_NUMBER"
+        ),
+    ) as client:
+        accounts = await client.get_accounts()
+
+        quotes = await client.get_quotes([
+            OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
+        ])
+        for q in quotes:
+            print(f"{q.instrument.symbol}: ${q.last}")
+
+asyncio.run(main())
+```
+
+The `async with` block automatically cancels any active price subscriptions and closes the HTTP connection when the block exits — no `try/finally` or manual `close()` call required.
 
 ## API Reference
 
@@ -316,8 +349,9 @@ preflight_request = PreflightRequest(
 )
 
 preflight_response = client.perform_preflight_calculation(preflight_request)
-print(f"Estimated commission: ${preflight_response.estimated_commission}")
-print(f"Order value: ${preflight_response.order_value}")
+commission = preflight_response.estimated_commission or 0
+print(f"Estimated commission: ${commission:.2f}")
+print(f"Order value: ${preflight_response.order_value:.2f}")
 ```
 
 ##### Multi-Leg Preflight
@@ -366,15 +400,95 @@ print(f"\nLegs:")
 for i, leg in enumerate(preflight_multi.legs, 1):
     print(f"  {i}. {leg.side.value} {leg.instrument.symbol}")
 
-cost = float(preflight_result.estimated_cost)
+cost = float(preflight_result.estimated_cost or 0)
 cost_label = "Debit (Cost)" if cost > 0 else "Credit"
 print(f"\nCost Analysis:")
 print(f"  {cost_label}: ${abs(cost):.2f}")
-print(f"  Commission: ${preflight_result.estimated_commission}")
-print(f"  Buying Power Required: ${preflight_result.buying_power_requirement}")
+commission = preflight_result.estimated_commission or 0
+bpr = preflight_result.buying_power_requirement or 0
+print(f"  Commission: ${commission:.2f}")
+print(f"  Buying Power Required: ${bpr:.2f}")
 
 print("\n" + "="*70)
 ```
+
+##### Strategy Preflight Helpers
+
+The SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
+
+**CALL credit spread (Bear Call Spread)** — profits if the underlying stays *below* the sell strike at expiry.
+
+```python
+from decimal import Decimal
+from public_api_sdk import OptionType, TimeInForce
+
+result = client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("195"),   # sell_strike < buy_strike for calls
+    buy_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("1.50"),  # minimum credit to accept (positive value)
+)
+cost = float(result.estimated_cost or 0)
+bpr = result.buying_power_requirement or 0
+print(f"Estimated credit: ${abs(cost):.2f}")
+print(f"Buying power required: ${bpr:.2f}")
+```
+
+**PUT credit spread (Bull Put Spread)** — profits if the underlying stays *above* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.PUT,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("185"),   # sell_strike > buy_strike for puts
+    buy_strike=Decimal("180"),
+    quantity=1,
+    limit_price=Decimal("1.50"),
+)
+```
+
+**CALL debit spread (Bull Call Spread)** — profits if the underlying rises *above* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.debit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    buy_strike=Decimal("195"),    # buy_strike < sell_strike for calls
+    sell_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("2.50"),  # maximum debit to pay (positive value)
+)
+cost = float(result.estimated_cost)
+print(f"Estimated debit: ${cost:.2f}")
+```
+
+**PUT debit spread (Bear Put Spread)** — profits if the underlying falls *below* the sell strike at expiry.
+
+```python
+result = client.strategy_preflight.debit_spread(
+    symbol="AAPL",
+    option_type=OptionType.PUT,
+    expiration_date="2025-12-19",
+    buy_strike=Decimal("185"),    # buy_strike > sell_strike for puts
+    sell_strike=Decimal("180"),
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+```
+
+> **Strike ordering rules** are enforced before the network call:
+> - CALL credit / PUT debit: `sell_strike < buy_strike` / `buy_strike > sell_strike`
+> - PUT credit / CALL debit: `sell_strike > buy_strike` / `buy_strike < sell_strike`
+>
+> `limit_price` is always a positive value regardless of strategy direction.
+> A `ValueError` with a clear message is raised immediately if any constraint is violated.
+
+See `examples/example_strategy_preflight.py` for a complete runnable example that fetches live quotes and expirations to auto-derive strikes.
 
 #### Place Orders
 
@@ -469,6 +583,43 @@ client.cancel_order(
 # Note: Check order status after to confirm cancellation
 ```
 
+#### Cancel and Replace Order
+
+Atomically cancel an existing open order and submit a replacement with updated parameters in a single API call.
+
+> **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
+
+```python
+from public_api_sdk import CancelAndReplaceRequest
+import uuid
+
+replacement = client.cancel_and_replace_order(
+    CancelAndReplaceRequest(
+        order_id="EXISTING_ORDER_ID",          # order to cancel
+        request_id=str(uuid.uuid4()),          # unique idempotency key
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("5"),
+        limit_price=Decimal("228.00"),
+        # stop_price=Decimal("225.00"),        # required for STOP or STOP_LIMIT
+    ),
+    account_id="YOUR_ACCOUNT"                  # optional if default set
+)
+print(f"Replacement order ID: {replacement.order_id}")
+```
+
+The returned `NewOrder` (or `AsyncNewOrder` for the async client) can be used to track the replacement order's status exactly like a freshly placed order:
+
+```python
+# Sync: poll until filled
+filled = replacement.wait_for_fill(timeout=60)
+print(f"Filled at ${filled.average_price}")
+
+# Sync: get current status
+details = replacement.get_status()
+print(f"Status: {details.status}")
+```
+
 
 ### Price Subscription
 
@@ -485,12 +636,9 @@ from public_api_sdk import (
 )
 
 # initialize client
-config = PublicApiClientConfiguration(
-    default_account_number="YOUR_ACCOUNT"
-)
 client = PublicApiClient(
-    api_secret_key="YOUR_KEY",
-    config=config
+    ApiKeyAuthConfig(api_secret_key="YOUR_KEY"),
+    config=PublicApiClientConfiguration(default_account_number="YOUR_ACCOUNT"),
 )
 
 # define callback
@@ -503,7 +651,7 @@ instruments = [
     OrderInstrument(symbol="GOOGL", type=InstrumentType.EQUITY),
 ]
 
-subscription_id = client.subscribe_to_price_changes(
+subscription_id = client.price_stream.subscribe(
     instruments=instruments,
     callback=on_price_change,
     config=SubscriptionConfig(polling_frequency_seconds=2.0)
@@ -512,7 +660,7 @@ subscription_id = client.subscribe_to_price_changes(
 # ...
 
 # unsubscribe
-client.unsubscribe(subscription_id)
+client.price_stream.unsubscribe(subscription_id)
 ```
 
 #### Async Callbacks
@@ -522,7 +670,7 @@ async def async_price_handler(price_change: PriceChange):
     # Async processing
     await process_price_change(price_change)
 
-client.subscribe_to_price_changes(
+client.price_stream.subscribe(
     instruments=instruments,
     callback=async_price_handler  # Async callbacks are automatically detected
 )
@@ -532,13 +680,13 @@ client.subscribe_to_price_changes(
 
 ```python
 # update polling frequency
-client.set_polling_frequency(subscription_id, 5.0)
+client.price_stream.set_polling_frequency(subscription_id, 5.0)
 
 # get all active subscriptions
-active = client.get_active_subscriptions()
+active = client.price_stream.get_active_subscriptions()
 
 # unsubscribe all
-client.unsubscribe_all()
+client.price_stream.unsubscribe_all()
 ```
 
 #### Custom Configuration
@@ -551,7 +699,7 @@ config = SubscriptionConfig(
     exponential_backoff=True        # use exponential backoff for retries
 )
 
-subscription_id = client.subscribe_to_price_changes(
+subscription_id = client.price_stream.subscribe(
     instruments=instruments,
     callback=on_price_change,
     config=config
@@ -560,6 +708,361 @@ subscription_id = client.subscribe_to_price_changes(
 
 
 
+
+## Async Client
+
+`AsyncPublicApiClient` mirrors every method on the sync `PublicApiClient` — the difference is that all API calls are coroutines that must be `await`ed, and the price subscription API is fully async-native.
+
+### Configuration
+
+```python
+from public_api_sdk import (
+    AsyncPublicApiClient,
+    AsyncPublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+)
+
+config = AsyncPublicApiClientConfiguration(
+    default_account_number="INSERT_ACCOUNT_NUMBER",  # optional default account
+)
+
+client = AsyncPublicApiClient(
+    auth_config=ApiKeyAuthConfig(api_secret_key="INSERT_API_SECRET_KEY"),
+    config=config,
+)
+```
+
+> **Token acquisition is lazy.** No network call is made in `__init__`. The first `await`ed API call fetches a token and stores it for subsequent requests.
+
+### Context Manager
+
+The recommended way to use the async client is with `async with`. Resources are released automatically whether the block exits normally or via an exception.
+
+```python
+async with AsyncPublicApiClient(auth_config=..., config=...) as client:
+    accounts = await client.get_accounts()
+    # subscriptions cancelled + HTTP client closed on exit
+```
+
+You can also manage the lifecycle manually if needed:
+
+```python
+client = AsyncPublicApiClient(auth_config=..., config=...)
+try:
+    accounts = await client.get_accounts()
+finally:
+    await client.close()  # cancels subscriptions and closes HTTP connection
+```
+
+### Concurrent Requests with asyncio.gather
+
+Because every method is a coroutine, you can fire multiple independent requests simultaneously:
+
+```python
+import asyncio
+
+accounts, portfolio, quotes = await asyncio.gather(
+    client.get_accounts(),
+    client.get_portfolio(),
+    client.get_quotes([OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)]),
+)
+```
+
+### Account & Portfolio
+
+All account and portfolio methods work identically to the sync client — just `await` them.
+
+```python
+# Get all accounts
+accounts = await client.get_accounts()
+
+# Portfolio snapshot
+portfolio = await client.get_portfolio()                        # uses default account
+portfolio = await client.get_portfolio(account_id="ACC123")    # explicit account
+
+# Paginated history
+from public_api_sdk import HistoryRequest
+
+history = await client.get_history(HistoryRequest(page_size=10))
+print(f"Transactions: {len(history.transactions)}")
+```
+
+### Market Data
+
+```python
+# One-off quotes
+quotes = await client.get_quotes([
+    OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY),
+    OrderInstrument(symbol="NVDA", type=InstrumentType.EQUITY),
+])
+
+# Instrument details
+instrument = await client.get_instrument("AAPL", InstrumentType.EQUITY)
+
+# All tradeable instruments
+from public_api_sdk import InstrumentsRequest, Trading
+
+instruments = await client.get_all_instruments(
+    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[Trading.BUY_AND_SELL])
+)
+```
+
+### Order Placement and Tracking
+
+`place_order` and `place_multileg_order` return an `AsyncNewOrder`, which exposes async helpers for polling and subscribing to status changes.
+
+```python
+import uuid
+from decimal import Decimal
+from public_api_sdk import (
+    OrderRequest, OrderInstrument, InstrumentType,
+    OrderSide, OrderType, OrderExpirationRequest, TimeInForce,
+)
+
+order = await client.place_order(
+    OrderRequest(
+        order_id=str(uuid.uuid4()),
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("10"),
+        limit_price=Decimal("227.50"),
+    )
+)
+print(f"Placed: {order.order_id}")
+```
+
+#### AsyncNewOrder — waiting for a fill
+
+```python
+from public_api_sdk import WaitTimeoutError
+
+try:
+    # Poll until filled; raises WaitTimeoutError after 60 seconds
+    filled = await order.wait_for_fill(timeout=60)
+    print(f"Filled at ${filled.average_price}")
+except WaitTimeoutError:
+    print("Order not filled within 60 seconds")
+    await order.cancel()
+```
+
+#### AsyncNewOrder — waiting for any terminal status
+
+```python
+# FILLED, CANCELLED, REJECTED, EXPIRED, or REPLACED
+result = await order.wait_for_terminal_status(timeout=120)
+print(f"Final status: {result.status}")
+```
+
+#### AsyncNewOrder — status update subscriptions
+
+```python
+async def on_order_update(update):
+    print(f"{update.old_status} -> {update.new_status}")
+
+await order.subscribe_updates(on_order_update)
+
+# ... later
+await order.unsubscribe()
+```
+
+#### Get and Cancel Orders
+
+```python
+# Get current status
+order_details = await client.get_order(order_id="ORDER-ID")
+print(f"Status: {order_details.status}")
+
+# Cancel
+await client.cancel_order(order_id="ORDER-ID")
+```
+
+#### Cancel and Replace Order (Async)
+
+Atomically cancel an existing open order and submit a replacement.
+
+> **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
+
+```python
+from public_api_sdk import CancelAndReplaceRequest
+import uuid
+
+replacement = await client.cancel_and_replace_order(
+    CancelAndReplaceRequest(
+        order_id="EXISTING_ORDER_ID",
+        request_id=str(uuid.uuid4()),
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("5"),
+        limit_price=Decimal("228.00"),
+    )
+)
+print(f"Replacement order ID: {replacement.order_id}")
+
+# Track the replacement the same way as any placed order
+filled = await replacement.wait_for_fill(timeout=60)
+print(f"Filled at ${filled.average_price}")
+```
+
+### Async Price Subscriptions
+
+The async client exposes `client.price_stream`, an `AsyncPriceStream` instance backed by per-subscription `asyncio.Task`s. No background threads are used.
+
+#### Subscribe
+
+```python
+from public_api_sdk import PriceChange, SubscriptionConfig
+
+async def on_price_change(change: PriceChange) -> None:
+    symbol = change.instrument.symbol
+    print(f"{symbol}: ${change.new_quote.last}  (bid=${change.new_quote.bid}, ask=${change.new_quote.ask})")
+
+sub_id = await client.price_stream.subscribe(
+    instruments=[
+        OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+    ],
+    callback=on_price_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+```
+
+Callbacks can be sync (`def`) or async (`async def`) — both are detected automatically.
+
+#### Independent subscriptions per symbol
+
+Create one subscription per instrument to control each one independently:
+
+```python
+msft_sub = await client.price_stream.subscribe(
+    instruments=[OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY)],
+    callback=on_msft_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+
+nvda_sub = await client.price_stream.subscribe(
+    instruments=[OrderInstrument(symbol="NVDA", type=InstrumentType.EQUITY)],
+    callback=on_nvda_change,
+    config=SubscriptionConfig(polling_frequency_seconds=1.0),
+)
+```
+
+#### Pause, Resume, and Retune
+
+```python
+# Pause one subscription without cancelling it
+client.price_stream.pause(nvda_sub)
+
+await asyncio.sleep(5)
+
+# Resume it
+client.price_stream.resume(nvda_sub)
+
+# Slow down polling without re-subscribing (valid range: 0.1 – 60 seconds)
+client.price_stream.set_polling_frequency(msft_sub, 3.0)
+```
+
+#### Inspect active subscriptions
+
+```python
+active_ids = client.price_stream.get_active_subscriptions()
+
+info = client.price_stream.get_subscription_info(msft_sub)
+if info:
+    print(f"MSFT polling every {info.polling_frequency}s")
+```
+
+#### Unsubscribe
+
+```python
+# Cancel a single subscription
+await client.price_stream.unsubscribe(msft_sub)
+
+# Cancel all at once (also called automatically by the context manager)
+await client.price_stream.unsubscribe_all()
+```
+
+### Preflight Calculations (Async)
+
+```python
+from public_api_sdk import PreflightRequest, OrderSide, OrderType, OrderExpirationRequest, TimeInForce
+from decimal import Decimal
+
+preflight = await client.perform_preflight_calculation(
+    PreflightRequest(
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=Decimal("10"),
+        limit_price=Decimal("227.50"),
+    )
+)
+commission = preflight.estimated_commission or 0
+print(f"Estimated commission: ${commission:.2f}")
+print(f"Order value: ${preflight.order_value:.2f}")
+```
+
+### Strategy Preflight Helpers (Async)
+
+All four spread helpers are available on the async client with identical parameters — just `await` them.
+
+```python
+from decimal import Decimal
+from public_api_sdk import OptionType
+
+result = await client.strategy_preflight.credit_spread(
+    symbol="AAPL",
+    option_type=OptionType.CALL,
+    expiration_date="2025-12-19",
+    sell_strike=Decimal("195"),
+    buy_strike=Decimal("200"),
+    quantity=1,
+    limit_price=Decimal("1.50"),
+)
+cost = float(result.estimated_cost)
+print(f"Estimated credit: ${abs(cost):.2f}")
+```
+
+### Error Handling (Async)
+
+```python
+from public_api_sdk.exceptions import (
+    APIError,
+    AuthenticationError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
+
+async with AsyncPublicApiClient(auth_config=..., config=...) as client:
+    try:
+        order = await client.place_order(order_request)
+        filled = await order.wait_for_fill(timeout=60)
+    except ValueError as e:
+        # Local validation failed before any network call (e.g. bad strike order)
+        print(f"Invalid parameters: {e}")
+    except AuthenticationError:
+        print("Invalid or expired credentials — regenerate your API key")
+    except ValidationError as e:
+        # HTTP 400 — invalid symbol, bad strike, insufficient buying power, etc.
+        print(f"Request rejected: {e.message}")
+        print(f"Details: {e.response_data}")
+    except NotFoundError:
+        # HTTP 404 — order not indexed yet (async placement) or unknown resource
+        print("Resource not found — if this is an order, retry after a moment")
+    except RateLimitError as e:
+        wait = e.retry_after or 5
+        print(f"Rate limited — retry after {wait}s")
+    except ServerError:
+        print("API server error — retry later")
+    except APIError as e:
+        # Catch-all for any other API error
+        print(f"Unexpected API error ({e.status_code}): {e.message}")
+```
+
+The context manager ensures cleanup even when an exception propagates out of the `async with` block.
 
 ## Examples
 
@@ -571,8 +1074,16 @@ See `example.py` for a complete trading workflow example that demonstrates:
 - Performing preflight calculations
 - Placing orders
 - Checking order status
+- Cancel and replace an open order
 - Getting portfolio information
 - Retrieving account history
+
+### Strategy Preflight Example
+
+See `example_strategy_preflight.py` for a self-contained example that:
+- Fetches a live quote to anchor strikes to the current market price
+- Resolves the nearest option expiration automatically
+- Runs all four spread types (CALL/PUT × credit/debit) back-to-back
 
 ### Options Trading Example
 
@@ -583,7 +1094,7 @@ See `example_options.py` for a comprehensive options trading example that shows:
 - Performing multi-leg preflight calculations
 - Placing multi-leg option orders
 
-### Price Subscription
+### Price Subscription (Sync)
 
 See `example_price_subscription.py` for complete examples including:
 - Basic subscription usage
@@ -591,23 +1102,83 @@ See `example_price_subscription.py` for complete examples including:
 - Multiple concurrent subscriptions
 - Custom price alert system
 
+### Async Client
+
+See `example_async_client.py` for a full async example that demonstrates:
+- API-key authentication with the async context manager
+- Concurrent account + portfolio fetch with `asyncio.gather`
+- One-off quote snapshot before subscribing
+- Cancel and replace an open order (commented-out template; crypto/options only)
+- Two independent async price subscriptions (one per symbol, 1-second polling)
+- Async callbacks with bid-ask spread and percentage-change tracking
+- Mid-run pause and resume of an individual subscription
+- Dynamic polling-frequency adjustment without re-subscribing
+- Subscription-info inspection at runtime
+- End-of-run summary stats
 
 ## Error Handling
 
-The SDK will raise exceptions for API errors. It's recommended to wrap API calls in try-except blocks:
+All API errors inherit from `APIError` and carry a `status_code` and `response_data` for full context.
+
+| Exception | HTTP status | Typical cause |
+|-----------|-------------|---------------|
+| `AuthenticationError` | 401 | Expired or revoked API key / token |
+| `ValidationError` | 400 | Invalid symbol, bad strike, wrong price sign, insufficient buying power |
+| `NotFoundError` | 404 | Order not yet indexed after async placement, unknown resource |
+| `RateLimitError` | 429 | Too many requests — check `retry_after` for backoff duration |
+| `ServerError` | 5xx | Transient server error — retry after a short wait |
+| `APIError` | any | Base class; catches all of the above |
 
 ```python
+from public_api_sdk.exceptions import (
+    APIError,
+    AuthenticationError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
+
 try:
-    order_response = client.place_order(order_request)
-except Exception as e:
-    print(f"Error placing order: {e}")
+    result = client.strategy_preflight.credit_spread(
+        symbol="AAPL",
+        option_type=OptionType.CALL,
+        expiration_date="2025-12-19",
+        sell_strike=Decimal("195"),
+        buy_strike=Decimal("200"),
+        quantity=1,
+        limit_price=Decimal("1.50"),
+    )
+except ValueError as e:
+    # Local validation failed before any network call
+    # e.g. strikes in the wrong order, non-positive limit_price
+    print(f"Invalid parameters: {e}")
+except AuthenticationError:
+    print("Invalid or expired credentials — regenerate your API key")
+except ValidationError as e:
+    # HTTP 400 from the API — bad symbol, unsupported expiration, etc.
+    print(f"Request rejected: {e.message}")
+    print(f"Details: {e.response_data}")
+except NotFoundError:
+    print("Resource not found")
+except RateLimitError as e:
+    import time
+    wait = e.retry_after or 5
+    print(f"Rate limited — waiting {wait}s")
+    time.sleep(wait)
+    # retry ...
+except ServerError:
+    print("Server error — retry after a moment")
+except APIError as e:
+    print(f"Unexpected API error ({e.status_code}): {e.message}")
 finally:
     client.close()
 ```
 
 ## Important Notes
 
-- Order placement is asynchronous. Always use `get_order()` to verify order status.
+- Order placement is asynchronous on the exchange side. Always use `get_order()` or `wait_for_fill()` to confirm the final status.
 - For accounts with a default account number configured, the `account_id` parameter is optional in most methods.
-- The client manages token refresh automatically.
-- Always call `client.close()` when done to clean up resources.
+- Both clients manage token acquisition and refresh automatically — no manual token handling is needed.
+- **Sync client:** always call `client.close()` when done to clean up resources.
+- **Async client:** prefer `async with AsyncPublicApiClient(...) as client:` — this cancels all subscriptions and closes the HTTP connection automatically. If you manage the lifecycle manually, call `await client.close()`.

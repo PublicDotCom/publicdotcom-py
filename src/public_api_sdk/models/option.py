@@ -118,6 +118,8 @@ class LegInstrument(BaseModel):
 
 
 class OrderLegRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
     instrument: LegInstrument = Field(...)
     side: OrderSide = Field(...)
     open_close_indicator: Optional[OpenCloseIndicator] = Field(

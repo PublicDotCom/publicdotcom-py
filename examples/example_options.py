@@ -1,5 +1,4 @@
 import os
-from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import uuid
 
@@ -27,6 +26,10 @@ from public_api_sdk import (
 
 # load env variables from .env file
 load_dotenv()
+
+# Set DRY_RUN=false to enable live order placement. Defaults to true (safe).
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
+
 
 def main() -> None:
 
@@ -71,34 +74,39 @@ def main() -> None:
         )
         print(f"Option chain: {option_chain}\n\n")
 
+        # Derive live OSI symbols from the chain so the example always uses valid symbols.
+        if len(option_chain.calls) < 2:
+            raise ValueError("Not enough call options in chain to run multi-leg example")
+        # calls[0] = lower strike, calls[1] = higher strike (bull call spread / debit)
+        leg1_symbol = option_chain.calls[0].instrument.symbol
+        leg2_symbol = option_chain.calls[1].instrument.symbol
+        print(f"Using call symbols from live chain: {leg1_symbol}, {leg2_symbol}\n")
+
         print("Getting option greeks...")
         option_greeks = public_api_client.get_option_greek(
-            osi_symbol="AAPL260116C00270000",
+            osi_symbol=leg1_symbol,
         )
         print(f"Option greeks: {option_greeks}\n\n")
 
-        print("Performing preflight calculation...")
+        print("Performing preflight calculation (bull call spread)...")
         preflight_request = PreflightMultiLegRequest(
             order_type=OrderType.LIMIT,
-            expiration=OrderExpirationRequest(
-                time_in_force=TimeInForce.GTD,
-                expiration_time=datetime.now(timezone.utc) + timedelta(days=60),
-            ),
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
             quantity=1,
-            limit_price=Decimal(3.45),
+            limit_price=Decimal("0.50"),
             legs=[
                 OrderLegRequest(
                     instrument=LegInstrument(
-                        symbol="AAPL260116C00270000",
+                        symbol=leg1_symbol,
                         type=LegInstrumentType.OPTION,
                     ),
-                    side=OrderSide.SELL,
+                    side=OrderSide.BUY,
                     open_close_indicator=OpenCloseIndicator.OPEN,
                     ratio_quantity=1,
                 ),
                 OrderLegRequest(
                     instrument=LegInstrument(
-                        symbol="AAPL251017C00235000",
+                        symbol=leg2_symbol,
                         type=LegInstrumentType.OPTION,
                     ),
                     side=OrderSide.SELL,
@@ -112,44 +120,47 @@ def main() -> None:
         )
         print(f"Preflight response: {preflight_response}\n\n")
 
-        print("Placing a multi-leg order...")
-        new_order = public_api_client.place_multileg_order(
-            MultilegOrderRequest(
-                order_id=str(uuid.uuid4()),
-                quantity=1,
-                type=OrderType.LIMIT,
-                limit_price=Decimal(3.45),
-                expiration=OrderExpirationRequest(
-                    time_in_force=TimeInForce.GTD,
-                    expiration_time=datetime.now(timezone.utc) + timedelta(days=60),
+        if DRY_RUN:
+            print(
+                "[DRY_RUN] Skipping multi-leg order placement.\n"
+                "          Set DRY_RUN=false in your environment to enable live trading.\n"
+            )
+        else:
+            print("Placing a multi-leg order...")
+            new_order = public_api_client.place_multileg_order(
+                MultilegOrderRequest(
+                    order_id=str(uuid.uuid4()),
+                    quantity=1,
+                    type=OrderType.LIMIT,
+                    limit_price=Decimal("0.50"),
+                    expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+                    legs=[
+                        OrderLegRequest(
+                            instrument=LegInstrument(
+                                symbol=leg1_symbol,
+                                type=LegInstrumentType.OPTION,
+                            ),
+                            side=OrderSide.BUY,
+                            open_close_indicator=OpenCloseIndicator.OPEN,
+                            ratio_quantity=1,
+                        ),
+                        OrderLegRequest(
+                            instrument=LegInstrument(
+                                symbol=leg2_symbol,
+                                type=LegInstrumentType.OPTION,
+                            ),
+                            side=OrderSide.SELL,
+                            open_close_indicator=OpenCloseIndicator.OPEN,
+                            ratio_quantity=1,
+                        ),
+                    ],
                 ),
-                legs=[
-                    OrderLegRequest(
-                        instrument=LegInstrument(
-                            symbol="AAPL260116C00270000",
-                            type=LegInstrumentType.OPTION,
-                        ),
-                        side=OrderSide.SELL,
-                        open_close_indicator=OpenCloseIndicator.OPEN,
-                        ratio_quantity=1,
-                    ),
-                    OrderLegRequest(
-                        instrument=LegInstrument(
-                            symbol="AAPL251017C00235000",
-                            type=LegInstrumentType.OPTION,
-                        ),
-                        side=OrderSide.SELL,
-                        open_close_indicator=OpenCloseIndicator.OPEN,
-                        ratio_quantity=1,
-                    ),
-                ],
-            ),
-        )
-        print(f"Order placed: {new_order.order_id}\n\n")
+            )
+            print(f"Order placed: {new_order.order_id}\n\n")
 
-        # get order status
-        order_status = new_order.get_status()
-        print(f"Order status: {order_status}\n\n")
+            # get order status
+            order_status = new_order.get_status()
+            print(f"Order status: {order_status}\n\n")
     except Exception as e:  # pylint: disable=broad-except
         print(f"Error: {e}")
 

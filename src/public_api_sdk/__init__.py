@@ -1,8 +1,10 @@
-from .auth_config import ApiKeyAuthConfig, AuthConfig, OAuthAuthConfig
+from .auth_config import ApiKeyAuthConfig, AsyncAuthConfig, AuthConfig, OAuthAuthConfig
 from .exceptions import APIError, AuthenticationError, RateLimitError
 from .models import (
     Account,
     AccountType,
+    AsyncNewOrder,
+    CancelAndReplaceRequest,
     HistoryRequest,
     HistoryResponsePage,
     InstrumentsRequest,
@@ -25,6 +27,7 @@ from .models import (
     OrderLegRequest,
     OrderRequest,
     OrderResponse,
+    OptionType,
     OrderSide,
     OrderStatus,
     OrderSubscriptionConfig,
@@ -48,15 +51,22 @@ from .models import (
     Trading,
     WaitTimeoutError,
 )
+from .async_price_stream import AsyncPriceStream
+from .async_public_api_client import AsyncPublicApiClient, AsyncPublicApiClientConfiguration
+from .async_strategy_preflight import AsyncStrategyPreflight
+from .async_subscription_manager import AsyncPriceSubscriptionManager
 from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
+from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 __all__ = [
+    # Auth
     "AuthConfig",
-    "ApiKeyAuthConfig", 
+    "AsyncAuthConfig",
+    "ApiKeyAuthConfig",
     "OAuthAuthConfig",
     "Account",
     "AccountType",
@@ -70,6 +80,8 @@ __all__ = [
     "OptionChainResponse",
     "OptionExpirationsRequest",
     "OptionExpirationsResponse",
+    "CancelAndReplaceRequest",
+    "OptionType",
     "OrderExpirationRequest",
     "OrderInstrument",
     "OrderSide",
@@ -79,6 +91,7 @@ __all__ = [
     "OrderResponse",
     "OrderStatus",
     "NewOrder",
+    "AsyncNewOrder",
     "OrderUpdate",
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
@@ -108,6 +121,14 @@ __all__ = [
     "PublicApiClientConfiguration",
     "PriceSubscriptionManager",
     "PriceStream",
+    "StrategyPreflight",
+    # Async client
+    "AsyncPublicApiClient",
+    "AsyncPublicApiClientConfiguration",
+    "AsyncPriceSubscriptionManager",
+    "AsyncPriceStream",
+    "AsyncStrategyPreflight",
+    # Exceptions
     "APIError",
     "AuthenticationError",
     "RateLimitError",

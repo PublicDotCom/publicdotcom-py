@@ -36,6 +36,8 @@ class PriceSubscriptionManager:
         self.executor = ThreadPoolExecutor(max_workers=10)
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        # consecutive failure counter per subscription (not stored in Pydantic model)
+        self._consecutive_failures: Dict[str, int] = {}
 
     def start(self) -> None:
         if self.thread and self.thread.is_alive():
@@ -62,11 +64,14 @@ class PriceSubscriptionManager:
             try:
                 await self._poll_all_subscriptions()
 
-                # Find minimum polling frequency across all active subscriptions
+                # Find minimum polling frequency across all active/degraded subscriptions
                 min_frequency = self.default_config.polling_frequency_seconds
                 with self._lock:
                     for sub in self.subscriptions.values():
-                        if sub.status == SubscriptionStatus.ACTIVE:
+                        if sub.status in (
+                            SubscriptionStatus.ACTIVE,
+                            SubscriptionStatus.DEGRADED,
+                        ):
                             min_frequency = min(
                                 min_frequency, sub.config.polling_frequency_seconds
                             )
@@ -81,7 +86,7 @@ class PriceSubscriptionManager:
             active_subscriptions = [
                 sub
                 for sub in self.subscriptions.values()
-                if sub.status == SubscriptionStatus.ACTIVE
+                if sub.status in (SubscriptionStatus.ACTIVE, SubscriptionStatus.DEGRADED)
             ]
 
         if not active_subscriptions:
@@ -125,9 +130,33 @@ class PriceSubscriptionManager:
             return
 
         # fetch quotes with retry logic
-        quotes = await self._fetch_quotes_with_retry(
-            all_instruments, subscriptions[0].config
-        )
+        try:
+            quotes = await self._fetch_quotes_with_retry(
+                all_instruments, subscriptions[0].config
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            # All retries exhausted — track consecutive failures per subscription
+            for sub in subscriptions:
+                self._consecutive_failures[sub.id] = (
+                    self._consecutive_failures.get(sub.id, 0) + 1
+                )
+                if (
+                    self._consecutive_failures[sub.id]
+                    >= sub.config.max_consecutive_failures
+                    and sub.status == SubscriptionStatus.ACTIVE
+                ):
+                    sub.status = SubscriptionStatus.DEGRADED
+                    logger.warning(
+                        "Subscription %s is DEGRADED after %d consecutive failures",
+                        sub.id,
+                        self._consecutive_failures[sub.id],
+                    )
+                    if sub.config.on_error:
+                        try:
+                            sub.config.on_error(sub.id, exc)
+                        except Exception:  # pylint: disable=broad-except
+                            pass
+            return
 
         if not quotes:
             return
@@ -140,6 +169,15 @@ class PriceSubscriptionManager:
 
         # check for price changes and trigger callbacks
         for sub in subscriptions:
+            # reset failure counter on success; restore DEGRADED → ACTIVE
+            if self._consecutive_failures.get(sub.id, 0) > 0:
+                self._consecutive_failures[sub.id] = 0
+                if sub.status == SubscriptionStatus.DEGRADED:
+                    sub.status = SubscriptionStatus.ACTIVE
+                    logger.info(
+                        "Subscription %s recovered from DEGRADED state", sub.id
+                    )
+
             for instrument in sub.instruments:
                 key = f"{instrument.symbol}_{instrument.type.value}"
                 if key in quote_map:
@@ -160,6 +198,7 @@ class PriceSubscriptionManager:
     ) -> List[Quote]:
         retries = 0
         backoff = 1
+        last_exc: Optional[Exception] = None
 
         while retries <= config.max_retries:
             try:
@@ -171,10 +210,11 @@ class PriceSubscriptionManager:
                 )
                 return quotes
             except (ConnectionError, TimeoutError, ValueError, TypeError) as e:
+                last_exc = e
                 logger.error("Error fetching quotes (attempt %d): %s", retries + 1, e)
 
                 if not config.retry_on_error or retries >= config.max_retries:
-                    return []
+                    break
 
                 retries += 1
                 if config.exponential_backoff:
@@ -183,6 +223,8 @@ class PriceSubscriptionManager:
                 else:
                     await asyncio.sleep(1)
 
+        if last_exc is not None:
+            raise last_exc
         return []
 
     def _detect_price_change(
@@ -288,6 +330,9 @@ class PriceSubscriptionManager:
             # clean up poll time tracking
             if subscription_id in self.last_poll_times:
                 del self.last_poll_times[subscription_id]
+
+            # clean up failure tracking
+            self._consecutive_failures.pop(subscription_id, None)
 
             return True
 

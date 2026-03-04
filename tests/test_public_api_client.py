@@ -24,6 +24,7 @@ from public_api_sdk.models.instrument import Instrument
 from public_api_sdk.models.new_order import NewOrder
 from public_api_sdk.models.option import GreeksResponse
 from public_api_sdk.models.order import (
+    CancelAndReplaceRequest,
     Order,
     OrderExpirationRequest,
     OrderRequest,
@@ -563,6 +564,63 @@ class TestCancelOrder:
         self.client.api_client.delete = Mock(return_value={})
         self.client.cancel_order("ORDER-123")
         self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# cancel_and_replace_order
+# ---------------------------------------------------------------------------
+
+_REQUEST_UUID = "85718cfb-32f4-4c57-976b-6060b94bbaf9"
+
+
+class TestCancelAndReplaceOrder:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.request = CancelAndReplaceRequest(
+            order_id=_VALID_UUID,
+            request_id=_REQUEST_UUID,
+            order_type=OrderType.LIMIT,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            limit_price=Decimal("150.00"),
+        )
+
+    def test_calls_put_on_correct_endpoint(self) -> None:
+        self.client.api_client.put = Mock(return_value={"orderId": "NEW-ORDER-456"})
+        self.client.cancel_and_replace_order(self.request)
+        url = self.client.api_client.put.call_args[0][0]
+        assert f"/{_ACCOUNT}/order" in url
+
+    def test_returns_new_order(self) -> None:
+        self.client.api_client.put = Mock(return_value={"orderId": "NEW-ORDER-456"})
+        result = self.client.cancel_and_replace_order(self.request)
+        assert isinstance(result, NewOrder)
+        assert result.order_id == "NEW-ORDER-456"
+        assert result.account_id == _ACCOUNT
+
+    def test_sends_serialized_body(self) -> None:
+        self.client.api_client.put = Mock(return_value={"orderId": "NEW-ORDER-456"})
+        self.client.cancel_and_replace_order(self.request)
+        json_data = self.client.api_client.put.call_args[1]["json_data"]
+        assert json_data["orderId"] == _VALID_UUID
+        assert json_data["requestId"] == _REQUEST_UUID
+        assert json_data["orderType"] == "LIMIT"
+        assert json_data["limitPrice"] == "150.00"
+
+    def test_uses_explicit_account_id(self) -> None:
+        self.client.api_client.put = Mock(return_value={"orderId": "NEW-ORDER-456"})
+        self.client.cancel_and_replace_order(self.request, account_id="OTHER_ACC")
+        url = self.client.api_client.put.call_args[0][0]
+        assert "/OTHER_ACC/order" in url
+
+    def test_refreshes_token(self) -> None:
+        self.client.api_client.put = Mock(return_value={"orderId": "NEW-ORDER-456"})
+        self.client.cancel_and_replace_order(self.request)
+        self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+    def test_no_account_raises_value_error(self) -> None:
+        client = _make_client(default_account=None)
+        with pytest.raises(ValueError, match="No account ID provided"):
+            client.cancel_and_replace_order(self.request)
 
 
 # ---------------------------------------------------------------------------

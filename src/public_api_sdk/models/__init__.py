@@ -20,10 +20,12 @@ from .option import (
     GreeksResponse,
 )
 from .order import (
+    CancelAndReplaceRequest,
     OrderInstrument,
     OrderExpirationRequest,
     OrderSide,
     OrderType,
+    OptionType,
     OrderRequest,
     OrderResponse,
     Order,
@@ -50,6 +52,7 @@ from .new_order import (
     OrderSubscriptionConfig,
     WaitTimeoutError,
 )
+from .async_new_order import AsyncNewOrder
 
 __all__ = [
     "AccessTokenResponse",
@@ -67,10 +70,12 @@ __all__ = [
     "OptionChainResponse",
     "OptionExpirationsRequest",
     "OptionExpirationsResponse",
+    "CancelAndReplaceRequest",
     "OrderInstrument",
     "OrderExpirationRequest",
     "OrderSide",
     "OrderType",
+    "OptionType",
     "OrderRequest",
     "OrderResponse",
     "Order",
@@ -103,4 +108,5 @@ __all__ = [
     "OrderUpdateCallback",
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
+    "AsyncNewOrder",
 ]

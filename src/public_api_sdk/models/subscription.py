@@ -10,6 +10,7 @@ class SubscriptionStatus(str, Enum):
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
     STOPPED = "STOPPED"
+    DEGRADED = "DEGRADED"  # polling consistently failing; self-heals on next success
 
 
 class PriceChange(BaseModel):
@@ -26,6 +27,8 @@ class PriceChange(BaseModel):
 
 
 class SubscriptionConfig(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     polling_frequency_seconds: float = Field(
         default=1.0,
         description="How often to poll for price updates in seconds",
@@ -40,6 +43,21 @@ class SubscriptionConfig(BaseModel):
     )
     exponential_backoff: bool = Field(
         default=True, description="Use exponential backoff for retries"
+    )
+    max_consecutive_failures: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Number of consecutive poll failures before the subscription is "
+            "marked DEGRADED and on_error is called."
+        ),
+    )
+    on_error: Optional[Callable[..., None]] = Field(
+        default=None,
+        description=(
+            "Optional callback invoked when the subscription transitions to "
+            "DEGRADED.  Signature: on_error(subscription_id: str, exc: Exception)"
+        ),
     )
 
     @field_validator("polling_frequency_seconds")

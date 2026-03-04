@@ -1,8 +1,10 @@
 import json
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 import requests
+from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter, BaseAdapter
 from urllib3.util.retry import Retry
 
@@ -17,10 +19,18 @@ from .exceptions import (
 
 
 class BlockHTTPAdapter(BaseAdapter):
-    def send(self, request, **kwargs):
+    def send(
+        self,
+        request: PreparedRequest,
+        stream: bool = False,
+        timeout: Optional[Union[float, Tuple[float, float], Tuple[float, None]]] = None,
+        verify: Union[bool, str] = True,
+        cert: Optional[Union[bytes, str, Tuple[Union[bytes, str], Union[bytes, str]]]] = None,
+        proxies: Optional[Mapping[str, str]] = None,
+    ) -> Response:
         raise RuntimeError("Insecure HTTP requests are not allowed. Use HTTPS endpoints only.")
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
@@ -44,6 +54,8 @@ class ApiClient:
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._max_retries = max_retries
+        self._backoff_factor = backoff_factor
 
         # create session with retry strategy
         self.session = requests.Session()
@@ -124,6 +136,30 @@ class ApiClient:
         else:
             raise APIError(error_message, response.status_code, response_data)
 
+    def _retry_non_safe(self, fn: Any) -> Dict[str, Any]:
+        """Apply application-level retry for ServerError and RateLimitError.
+
+        Used by post(), put(), and delete() — methods excluded from urllib3's
+        retry because they are not idempotent.  Only transient errors (5xx and
+        429) are retried; 4xx errors are raised immediately.
+        """
+        backoff = self._backoff_factor
+        for attempt in range(self._max_retries + 1):
+            try:
+                return fn()
+            except RateLimitError as exc:
+                if attempt >= self._max_retries:
+                    raise
+                time.sleep(exc.retry_after or backoff)
+                backoff = min(backoff * 2, 60.0)
+            except ServerError:
+                if attempt >= self._max_retries:
+                    raise
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+        # unreachable — loop always raises or returns — but satisfies mypy
+        raise RuntimeError("_retry_non_safe exhausted without result")  # pragma: no cover
+
     def get(
         self,
         endpoint: str,
@@ -142,14 +178,14 @@ class ApiClient:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        response = self.session.post(
-            url,
-            data=data,
-            json=json_data,
-            timeout=self.timeout,
-            **kwargs,
-        )
-        return self._handle_response(response)
+
+        def _do() -> Dict[str, Any]:
+            response = self.session.post(
+                url, data=data, json=json_data, timeout=self.timeout, **kwargs
+            )
+            return self._handle_response(response)
+
+        return self._retry_non_safe(_do)
 
     def put(
         self,
@@ -159,14 +195,14 @@ class ApiClient:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        response = self.session.put(
-            url,
-            data=data,
-            json=json_data,
-            timeout=self.timeout,
-            **kwargs,
-        )
-        return self._handle_response(response)
+
+        def _do() -> Dict[str, Any]:
+            response = self.session.put(
+                url, data=data, json=json_data, timeout=self.timeout, **kwargs
+            )
+            return self._handle_response(response)
+
+        return self._retry_non_safe(_do)
 
     def delete(
         self,
@@ -174,8 +210,12 @@ class ApiClient:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         url = self._build_url(endpoint)
-        response = self.session.delete(url, timeout=self.timeout, **kwargs)
-        return self._handle_response(response)
+
+        def _do() -> Dict[str, Any]:
+            response = self.session.delete(url, timeout=self.timeout, **kwargs)
+            return self._handle_response(response)
+
+        return self._retry_non_safe(_do)
 
     def close(self) -> None:
         self.session.close()
