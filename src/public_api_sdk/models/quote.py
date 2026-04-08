@@ -5,7 +5,31 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, AliasChoices
 
+from .greeks import GreekValues
 from .order import OrderInstrument
+
+
+class ChainOptionDetails(BaseModel):
+    """Option details returned inline in option chain responses.
+
+    This is distinct from the OptionDetails model in order.py, which represents
+    option metadata on order/preflight responses. The chain endpoint returns
+    strike price, mid-price, and full Greeks for each call/put entry.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    strike_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("strike_price", "strikePrice"),
+        serialization_alias="strikePrice",
+    )
+    mid_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("mid_price", "midPrice"),
+        serialization_alias="midPrice",
+    )
+    greeks: Optional[GreekValues] = Field(None)
 
 
 class QuoteOutcome(str, Enum):
@@ -97,4 +121,25 @@ class Quote(BaseModel):
             "The total number of options contracts that are not closed or delivered"
             " on a particular day."
         ),
+    )
+    option_details: Optional[ChainOptionDetails] = Field(
+        None,
+        validation_alias=AliasChoices("option_details", "optionDetails"),
+        serialization_alias="optionDetails",
+        description=(
+            "Option details including strike price, mid-price, and Greeks."
+            " Present in option chain responses."
+        ),
+    )
+    previous_close: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("previous_close", "previousClose"),
+        serialization_alias="previousClose",
+        description="The previous closing price of the instrument.",
+    )
+    on_day_change: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("on_day_change", "onDayChange"),
+        serialization_alias="onDayChange",
+        description="The change in price on the current trading day.",
     )

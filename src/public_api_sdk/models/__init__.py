@@ -3,6 +3,7 @@ from .account import Account, AccountType, AccountsResponse
 from .history import HistoryRequest, HistoryResponsePage
 from .instrument import Instrument, InstrumentsRequest, InstrumentsResponse, Trading
 from .instrument_type import InstrumentType
+from .greeks import GreekValues
 from .option import (
     OptionChainRequest,
     OptionChainResponse,
@@ -36,7 +37,7 @@ from .order import (
     EquityMarketSession,
 )
 from .portfolio import Portfolio
-from .quote import Quote, QuoteOutcome
+from .quote import ChainOptionDetails, Quote, QuoteOutcome
 from .subscription import (
     SubscriptionStatus,
     PriceChange,
@@ -66,6 +67,7 @@ __all__ = [
     "InstrumentsResponse",
     "InstrumentType",
     "Trading",
+    "GreekValues",
     "OptionChainRequest",
     "OptionChainResponse",
     "OptionExpirationsRequest",
@@ -81,6 +83,7 @@ __all__ = [
     "Order",
     "OrderStatus",
     "TimeInForce",
+    "ChainOptionDetails",
     "Quote",
     "QuoteOutcome",
     "PreflightRequest",

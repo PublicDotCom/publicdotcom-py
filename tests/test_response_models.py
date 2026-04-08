@@ -22,13 +22,14 @@ from public_api_sdk.models.history import (
 )
 from public_api_sdk.models.instrument import Instrument, InstrumentsResponse, Trading
 from public_api_sdk.models.instrument_type import InstrumentType
+from public_api_sdk.models.greeks import GreekValues
 from public_api_sdk.models.option import (
-    GreekValues,
     GreeksResponse,
+    OptionChainResponse,
     OptionGreeks,
 )
 from public_api_sdk.models.portfolio import BuyingPower, Portfolio, PortfolioPosition
-from public_api_sdk.models.quote import Quote, QuoteOutcome
+from public_api_sdk.models.quote import ChainOptionDetails, Quote, QuoteOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +250,145 @@ class TestQuoteDeserialization:
         }
         quote = Quote(**payload)
         assert quote.open_interest == 12345
+
+    def test_option_details_absent(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+        }
+        quote = Quote(**payload)
+        assert quote.option_details is None
+        assert quote.previous_close is None
+        assert quote.on_day_change is None
+
+    def test_option_details_with_greeks(self) -> None:
+        payload = {
+            "instrument": {"symbol": "SPY260409C00500000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "bid": "158.59",
+            "ask": "161.40",
+            "optionDetails": {
+                "strikePrice": "500",
+                "midPrice": "160",
+                "greeks": {
+                    "delta": "0.9798",
+                    "gamma": "0.0005",
+                    "theta": "-2.3065",
+                    "vega": "0.0169",
+                    "rho": "0.0133",
+                    "impliedVolatility": "2.6706",
+                },
+            },
+            "previousClose": "159.00",
+            "onDayChange": "1.50",
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.option_details, ChainOptionDetails)
+        assert quote.option_details.strike_price == Decimal("500")
+        assert quote.option_details.mid_price == Decimal("160")
+        assert isinstance(quote.option_details.greeks, GreekValues)
+        assert quote.option_details.greeks.delta == Decimal("0.9798")
+        assert quote.option_details.greeks.gamma == Decimal("0.0005")
+        assert quote.option_details.greeks.theta == Decimal("-2.3065")
+        assert quote.option_details.greeks.vega == Decimal("0.0169")
+        assert quote.option_details.greeks.rho == Decimal("0.0133")
+        assert quote.option_details.greeks.implied_volatility == Decimal("2.6706")
+        assert quote.previous_close == Decimal("159.00")
+        assert quote.on_day_change == Decimal("1.50")
+
+    def test_option_details_without_greeks(self) -> None:
+        payload = {
+            "instrument": {"symbol": "SPY260409C00500000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {
+                "strikePrice": "500",
+                "midPrice": "160",
+            },
+        }
+        quote = Quote(**payload)
+        assert quote.option_details.strike_price == Decimal("500")
+        assert quote.option_details.greeks is None
+
+
+# ---------------------------------------------------------------------------
+# OptionChainResponse
+# ---------------------------------------------------------------------------
+
+
+class TestOptionChainResponseDeserialization:
+    def test_full_chain_response(self) -> None:
+        """Realistic option chain payload preserves optionDetails and greeks."""
+        greeks = {
+            "delta": "0.52",
+            "gamma": "0.015",
+            "theta": "-0.04",
+            "vega": "0.18",
+            "rho": "0.08",
+            "impliedVolatility": "0.30",
+        }
+        payload = {
+            "baseSymbol": "SPY",
+            "calls": [
+                {
+                    "instrument": {"symbol": "SPY260409C00500000", "type": "OPTION"},
+                    "outcome": "SUCCESS",
+                    "bid": "158.59",
+                    "ask": "161.40",
+                    "optionDetails": {
+                        "strikePrice": "500",
+                        "midPrice": "160",
+                        "greeks": greeks,
+                    },
+                    "previousClose": "159.00",
+                    "onDayChange": "1.50",
+                }
+            ],
+            "puts": [
+                {
+                    "instrument": {"symbol": "SPY260409P00500000", "type": "OPTION"},
+                    "outcome": "SUCCESS",
+                    "bid": "0.01",
+                    "ask": "0.03",
+                    "optionDetails": {
+                        "strikePrice": "500",
+                        "midPrice": "0.02",
+                        "greeks": greeks,
+                    },
+                }
+            ],
+        }
+        response = OptionChainResponse(**payload)
+        assert response.base_symbol == "SPY"
+        assert len(response.calls) == 1
+        assert len(response.puts) == 1
+
+        call = response.calls[0]
+        assert call.option_details is not None
+        assert call.option_details.strike_price == Decimal("500")
+        assert call.option_details.greeks.delta == Decimal("0.52")
+        assert call.previous_close == Decimal("159.00")
+        assert call.on_day_change == Decimal("1.50")
+
+        put = response.puts[0]
+        assert put.option_details is not None
+        assert put.option_details.mid_price == Decimal("0.02")
+
+    def test_chain_without_option_details(self) -> None:
+        """Chain entries without optionDetails still deserialize fine."""
+        payload = {
+            "baseSymbol": "SPY",
+            "calls": [
+                {
+                    "instrument": {"symbol": "SPY260409C00500000", "type": "OPTION"},
+                    "outcome": "SUCCESS",
+                    "bid": "158.59",
+                    "ask": "161.40",
+                }
+            ],
+            "puts": [],
+        }
+        response = OptionChainResponse(**payload)
+        assert response.calls[0].option_details is None
 
 
 # ---------------------------------------------------------------------------
