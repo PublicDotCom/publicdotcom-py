@@ -139,7 +139,24 @@ class AsyncApiClient:
             )
             if should_retry_status:
                 retries += 1
-                await asyncio.sleep(self._backoff_factor * (2 ** (retries - 1)))
+                if response.status_code == 429:
+                    retry_after_header = response.headers.get("Retry-After")
+                    try:
+                        server_wait = (
+                            float(retry_after_header)
+                            if retry_after_header is not None
+                            else None
+                        )
+                    except (TypeError, ValueError):
+                        server_wait = None
+                else:
+                    server_wait = None
+                delay = (
+                    server_wait
+                    if server_wait is not None
+                    else self._backoff_factor * (2 ** (retries - 1))
+                )
+                await asyncio.sleep(delay)
                 continue
 
             return self._handle_response(response)

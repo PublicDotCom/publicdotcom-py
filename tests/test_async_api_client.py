@@ -378,6 +378,48 @@ class TestAsyncApiClientRetry:
         with pytest.raises(APIError):
             await self.client.get("/endpoint")
 
+    @pytest.mark.asyncio
+    async def test_429_retry_honors_retry_after_header(self) -> None:
+        """The server's Retry-After value must drive the sleep, not local backoff.
+
+        Public.com doubled rate limits to 10 req/s/account in Feb 2026; a 429
+        with Retry-After: 2 means the server wants 2 seconds of quiet. Ignoring
+        that header and sleeping 0.01s (backoff_factor) re-hits the limit
+        immediately and wastes the retry budget.
+        """
+        rate_limited = _make_httpx_response(
+            429,
+            data={"message": "slow down"},
+            headers={"Retry-After": "2"},
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            result = await self.client.get("/endpoint")
+
+        assert result == {"ok": True}
+        sleep_mock.assert_awaited_once()
+        slept = sleep_mock.await_args.args[0]
+        assert slept == 2, f"expected sleep=2 (server Retry-After), got {slept}"
+
+    @pytest.mark.asyncio
+    async def test_429_retry_falls_back_to_backoff_when_no_header(self) -> None:
+        """Without Retry-After, exponential backoff should drive the sleep."""
+        rate_limited = _make_httpx_response(
+            429, data={"message": "slow"}, headers={}
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            result = await self.client.get("/endpoint")
+
+        assert result == {"ok": True}
+        slept = sleep_mock.await_args.args[0]
+        # first retry: backoff_factor * 2^0 = 0.01
+        assert slept == pytest.approx(0.01)
+
 
 # ---------------------------------------------------------------------------
 # Close
