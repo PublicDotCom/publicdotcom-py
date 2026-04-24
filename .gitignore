@@ -22,6 +22,7 @@ wheels/
 MANIFEST
 *.manifest
 *.spec
+spec.yaml
 
 .ipynb_checkpoints
 .python-version
