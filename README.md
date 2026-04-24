@@ -118,6 +118,23 @@ client = PublicApiClient(
     )
 ```
 
+#### Access Token Validity
+
+`ApiKeyAuthConfig` accepts an optional `validity_minutes` argument (default: `15`) that controls how long each minted access token stays valid on the server. Valid range is **5 to 1440 minutes (24 hours)**; values outside this range raise `ValueError`.
+
+```python
+# Long-lived session for a batch job — refresh every ~1 hour
+client = PublicApiClient(
+    ApiKeyAuthConfig(
+        api_secret_key="INSERT_API_SECRET_KEY",
+        validity_minutes=60,
+    ),
+    config=config,
+)
+```
+
+The SDK automatically refreshes the token ahead of its expiry (5 minutes of slack), so you don't need to manage refresh yourself — longer `validity_minutes` just means fewer token-mint round trips.
+
 #### Default Account Number
 
 The `default_account_number` configuration option simplifies API calls by eliminating the need to specify `account_id` in every method call. When set, any method that accepts an optional `account_id` parameter will automatically use the default account number if no account ID is explicitly provided.
