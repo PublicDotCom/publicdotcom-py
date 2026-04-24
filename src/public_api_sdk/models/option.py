@@ -183,8 +183,8 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         description="The order type. Only LIMIT orders are allowed",
     )
     expiration: OrderExpirationRequest = Field(...)
-    quantity: Optional[int] = Field(
-        None,
+    quantity: int = Field(
+        ...,
         description="The quantity of the spread. Must be greater than 0",
     )
     limit_price: Decimal = Field(
@@ -205,8 +205,8 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
 
     @field_validator("quantity")
     @classmethod
-    def validate_quantity(cls, v: Optional[int]) -> Optional[int]:
-        if v is not None and v <= 0:
+    def validate_quantity(cls, v: int) -> int:
+        if v <= 0:
             raise ValueError("`quantity` must be greater than 0")
         return v
 
@@ -220,16 +220,12 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
-        return str(value) if value is not None else None
+    def serialize_int(self, value: int) -> str:
+        return str(value)
 
     @field_serializer("limit_price")
-    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
+    def serialize_decimal(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 class OptionDetails(BaseModel):
@@ -294,8 +290,8 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
     type: OrderType = Field(
         ..., description="The order type. Only LIMIT order are allowed"
     )
-    limit_price: Optional[Decimal] = Field(
-        None,
+    limit_price: Decimal = Field(
+        ...,
         validation_alias=AliasChoices("limit_price", "limitPrice"),
         serialization_alias="limitPrice",
         description=(
@@ -341,16 +337,12 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
-        return str(value) if value is not None else None
+    def serialize_int(self, value: int) -> str:
+        return str(value)
 
     @field_serializer("limit_price")
-    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
+    def serialize_decimal(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 class MultilegOrderResult(BaseModel):
