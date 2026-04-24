@@ -203,7 +203,7 @@ history = client.get_history(
 
 #### Get Quotes
 
-Retrieve real-time quotes for multiple instruments.
+Retrieve real-time quotes for multiple instruments. Each `Quote` includes the last/bid/ask, volume, open interest, previous close, a one-day change breakdown, and option-specific details (strike, mid price, and greeks) when the instrument is an option.
 
 ```python
 from public_api_sdk import OrderInstrument, InstrumentType
@@ -214,7 +214,19 @@ quotes = client.get_quotes([
 ])
 
 for quote in quotes:
-    print(f"{quote.instrument.symbol}: ${quote.last}")
+    print(f"{quote.instrument.symbol}: ${quote.last} (prev close ${quote.previous_close})")
+    if quote.one_day_change:
+        print(f"  1d change: ${quote.one_day_change.change} ({quote.one_day_change.percent_change}%)")
+```
+
+For option quotes (either via `get_quotes` on an `OPTION` instrument, or the calls/puts inside `get_option_chain`), `quote.option_details` exposes greeks and mid price:
+
+```python
+if quote.option_details:
+    print(f"Strike: ${quote.option_details.strike_price}, mid: ${quote.option_details.mid_price}")
+    if quote.option_details.greeks:
+        g = quote.option_details.greeks
+        print(f"  Δ={g.delta} Γ={g.gamma} Θ={g.theta} ν={g.vega} IV={g.implied_volatility}")
 ```
 
 #### Get Instrument Details

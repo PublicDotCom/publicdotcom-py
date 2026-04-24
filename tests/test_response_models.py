@@ -28,7 +28,12 @@ from public_api_sdk.models.option import (
     OptionGreeks,
 )
 from public_api_sdk.models.portfolio import BuyingPower, Portfolio, PortfolioPosition
-from public_api_sdk.models.quote import Quote, QuoteOutcome
+from public_api_sdk.models.quote import (
+    OneDayChange,
+    Quote,
+    QuoteOptionDetails,
+    QuoteOutcome,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -471,3 +476,87 @@ class TestGreeksResponseDeserialization:
     def test_empty_greeks_list(self) -> None:
         response = GreeksResponse(**{"greeks": []})
         assert response.greeks == []
+
+
+# ---------------------------------------------------------------------------
+# Quote — new fields (previousClose, oneDayChange, optionDetails)
+# ---------------------------------------------------------------------------
+
+
+class TestQuoteNewFieldsDeserialization:
+    def test_previous_close(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "previousClose": "149.00",
+        }
+        quote = Quote(**payload)
+        assert quote.previous_close == Decimal("149.00")
+
+    def test_one_day_change(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "oneDayChange": {"change": "1.50", "percentChange": "1.01"},
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.one_day_change, OneDayChange)
+        assert quote.one_day_change.change == Decimal("1.50")
+        assert quote.one_day_change.percent_change == Decimal("1.01")
+
+    def test_one_day_change_partial(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "oneDayChange": {"change": "0.25"},
+        }
+        quote = Quote(**payload)
+        assert quote.one_day_change is not None
+        assert quote.one_day_change.change == Decimal("0.25")
+        assert quote.one_day_change.percent_change is None
+
+    def test_option_details_with_greeks(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {
+                "strikePrice": "270.00",
+                "midPrice": "3.25",
+                "greeks": {
+                    "delta": "0.52",
+                    "gamma": "0.015",
+                    "theta": "-0.04",
+                    "vega": "0.18",
+                    "rho": "0.08",
+                    "impliedVolatility": "0.30",
+                },
+            },
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.option_details, QuoteOptionDetails)
+        assert quote.option_details.strike_price == Decimal("270.00")
+        assert quote.option_details.mid_price == Decimal("3.25")
+        assert quote.option_details.greeks is not None
+        assert quote.option_details.greeks.delta == Decimal("0.52")
+        assert quote.option_details.greeks.implied_volatility == Decimal("0.30")
+
+    def test_option_details_with_null_mid_price(self) -> None:
+        """Spec: midPrice is nullable — explicit null should parse."""
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {"strikePrice": "270.00", "midPrice": None},
+        }
+        quote = Quote(**payload)
+        assert quote.option_details is not None
+        assert quote.option_details.mid_price is None
+
+    def test_new_fields_absent(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+        }
+        quote = Quote(**payload)
+        assert quote.previous_close is None
+        assert quote.one_day_change is None
+        assert quote.option_details is None

@@ -36,7 +36,13 @@ from .order import (
     EquityMarketSession,
 )
 from .portfolio import Portfolio
-from .quote import Quote, QuoteOutcome
+from .quote import (
+    GreekValues,
+    OneDayChange,
+    Quote,
+    QuoteOptionDetails,
+    QuoteOutcome,
+)
 from .subscription import (
     SubscriptionStatus,
     PriceChange,
@@ -81,7 +87,10 @@ __all__ = [
     "Order",
     "OrderStatus",
     "TimeInForce",
+    "GreekValues",
+    "OneDayChange",
     "Quote",
+    "QuoteOptionDetails",
     "QuoteOutcome",
     "PreflightRequest",
     "PreflightResponse",

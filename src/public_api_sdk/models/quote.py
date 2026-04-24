@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import AliasChoices, BaseModel, Field
 
 from .order import OrderInstrument
 
@@ -11,6 +11,101 @@ from .order import OrderInstrument
 class QuoteOutcome(str, Enum):
     SUCCESS = "SUCCESS"
     UNKNOWN = "UNKNOWN"
+
+
+class GreekValues(BaseModel):
+    """The Greek values for an option. All fields are optional per the API contract."""
+
+    model_config = {"populate_by_name": True}
+
+    delta: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Delta is the theoretical estimate of how much an option's value may"
+            " change given a $1 move UP or DOWN in the underlying security."
+        ),
+    )
+    gamma: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Gamma represents the rate of change between an option's Delta and"
+            " the underlying asset's price."
+        ),
+    )
+    theta: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Theta represents the rate of change between the option price and"
+            " time — an option's time decay."
+        ),
+    )
+    vega: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Vega measures the amount of increase or decrease in an option"
+            " premium based on a 1% change in implied volatility."
+        ),
+    )
+    rho: Optional[Decimal] = Field(
+        None,
+        description=(
+            "Rho represents the rate of change between an option's value and a"
+            " 1% change in the interest rate."
+        ),
+    )
+    implied_volatility: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("implied_volatility", "impliedVolatility"),
+        serialization_alias="impliedVolatility",
+        description=(
+            "Implied volatility (IV) is a theoretical forecast of how volatile"
+            " an underlying stock is expected to be in the future."
+        ),
+    )
+
+
+class OneDayChange(BaseModel):
+    """One-day price change data for a quote.
+
+    Values are provided by the data source (e.g., Xignite) and may differ from
+    simple subtraction of current price minus previous close due to corporate
+    actions, stock splits, or other adjustments.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    change: Optional[Decimal] = Field(
+        None, description="The one-day price change in dollars."
+    )
+    percent_change: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("percent_change", "percentChange"),
+        serialization_alias="percentChange",
+        description="The one-day price change as a percentage.",
+    )
+
+
+class QuoteOptionDetails(BaseModel):
+    """Option-specific details for a quote: greeks, strike price, and mid price."""
+
+    model_config = {"populate_by_name": True}
+
+    greeks: Optional[GreekValues] = Field(None)
+    strike_price: Decimal = Field(
+        ...,
+        validation_alias=AliasChoices("strike_price", "strikePrice"),
+        serialization_alias="strikePrice",
+        description="The strike price for the option contract.",
+    )
+    mid_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("mid_price", "midPrice"),
+        serialization_alias="midPrice",
+        description=(
+            "The mid price (average of bid and ask) for the option contract."
+            " Null if bid/ask data is not available."
+        ),
+    )
 
 
 class Quote(BaseModel):
@@ -97,4 +192,22 @@ class Quote(BaseModel):
             "The total number of options contracts that are not closed or delivered"
             " on a particular day."
         ),
+    )
+    previous_close: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("previous_close", "previousClose"),
+        serialization_alias="previousClose",
+        description="The previous day's close price from the last trading session.",
+    )
+    one_day_change: Optional[OneDayChange] = Field(
+        None,
+        validation_alias=AliasChoices("one_day_change", "oneDayChange"),
+        serialization_alias="oneDayChange",
+        description="One-day price change data (dollars and percent).",
+    )
+    option_details: Optional[QuoteOptionDetails] = Field(
+        None,
+        validation_alias=AliasChoices("option_details", "optionDetails"),
+        serialization_alias="optionDetails",
+        description="Option-specific details: greeks, strike price, and mid price.",
     )
