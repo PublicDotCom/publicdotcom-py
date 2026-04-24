@@ -54,6 +54,7 @@ from .models import (
     QuoteOptionDetails,
     QuoteOutcome,
     ShortingAvailability,
+    ShortSelling,
     Strategy,
     StrategyLeg,
     Subscription,
@@ -62,6 +63,7 @@ from .models import (
     SubscriptionStatus,
     TimeInForce,
     Trading,
+    UptickRule,
     WaitTimeoutError,
 )
 from .async_price_stream import AsyncPriceStream
@@ -116,6 +118,8 @@ __all__ = [
     "WaitTimeoutError",
     "PreflightRequest",
     "PreflightResponse",
+    "ShortSelling",
+    "UptickRule",
     "EquityMarketSession",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",

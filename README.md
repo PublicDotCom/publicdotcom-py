@@ -406,8 +406,18 @@ preflight_request = PreflightRequest(
 
 preflight_response = client.perform_preflight_calculation(preflight_request)
 commission = preflight_response.estimated_commission or 0
+execution_fee = preflight_response.estimated_execution_fee or 0
 print(f"Estimated commission: ${commission:.2f}")
+print(f"Estimated execution fee: ${execution_fee:.2f}")
 print(f"Order value: ${preflight_response.order_value:.2f}")
+
+# Short-selling diagnostics — populated when the order side is SELL and the
+# instrument is a shortable equity.
+if preflight_response.short_selling:
+    ss = preflight_response.short_selling
+    print(f"Shorting: {ss.availability.value}, uptick rule: {ss.uptick_rule.value}")
+    if ss.hard_to_borrow_percentage_rate is not None:
+        print(f"  HTB rate: {ss.hard_to_borrow_percentage_rate}%")
 ```
 
 ##### Multi-Leg Preflight

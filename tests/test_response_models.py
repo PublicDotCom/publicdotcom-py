@@ -874,3 +874,93 @@ class TestPortfolioStrategiesDeserialization:
             strategy_ids=["s1", "s2"],
         )
         assert position.strategy_ids == ["s1", "s2"]
+
+
+# ---------------------------------------------------------------------------
+# PreflightResponse — new fields (shortSelling, estimatedExecutionFee)
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightResponseNewFieldsDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "orderValue": "1000.00",
+        }
+
+    def test_estimated_execution_fee(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse
+
+        payload = self._base_payload()
+        payload["estimatedExecutionFee"] = "0.15"
+        response = PreflightResponse(**payload)
+        assert response.estimated_execution_fee == Decimal("0.15")
+
+    def test_short_selling_full(self) -> None:
+        from public_api_sdk.models.order import (
+            PreflightResponse,
+            ShortingAvailability,
+            ShortSelling,
+            UptickRule,
+        )
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "HARD_TO_BORROW",
+            "uptickRule": "TRIGGERED",
+            "hardToBorrowPercentageRate": "5.25",
+            "initialMarginRequirementPercentage": "150.0",
+            "maintenanceMarginRequirementPercentage": "130.0",
+            "maxQuantityForLocate": 10000,
+        }
+        response = PreflightResponse(**payload)
+        assert isinstance(response.short_selling, ShortSelling)
+        assert response.short_selling.availability == ShortingAvailability.HARD_TO_BORROW
+        assert response.short_selling.uptick_rule == UptickRule.TRIGGERED
+        assert response.short_selling.hard_to_borrow_percentage_rate == Decimal("5.25")
+        assert response.short_selling.initial_margin_requirement_percentage == Decimal(
+            "150.0"
+        )
+        assert response.short_selling.maintenance_margin_requirement_percentage == (
+            Decimal("130.0")
+        )
+        assert response.short_selling.max_quantity_for_locate == 10000
+
+    def test_short_selling_required_only(self) -> None:
+        """Spec: only availability and uptickRule are required on ShortSelling."""
+        from public_api_sdk.models.order import (
+            PreflightResponse,
+            ShortingAvailability,
+            UptickRule,
+        )
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "EASY_TO_BORROW",
+            "uptickRule": "NOT_TRIGGERED",
+        }
+        response = PreflightResponse(**payload)
+        assert response.short_selling is not None
+        assert response.short_selling.availability == ShortingAvailability.EASY_TO_BORROW
+        assert response.short_selling.uptick_rule == UptickRule.NOT_TRIGGERED
+        assert response.short_selling.hard_to_borrow_percentage_rate is None
+        assert response.short_selling.max_quantity_for_locate is None
+
+    def test_short_selling_not_shortable(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse, ShortingAvailability
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "NOT_SHORTABLE",
+            "uptickRule": "NOT_TRIGGERED",
+        }
+        response = PreflightResponse(**payload)
+        assert response.short_selling is not None
+        assert response.short_selling.availability == ShortingAvailability.NOT_SHORTABLE
+
+    def test_new_fields_absent(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse
+
+        response = PreflightResponse(**self._base_payload())
+        assert response.estimated_execution_fee is None
+        assert response.short_selling is None

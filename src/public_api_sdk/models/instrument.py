@@ -5,19 +5,18 @@ from typing import Any, List, Optional, Union
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from .instrument_type import InstrumentType
-from .order import OrderInstrument
+from .order import OrderInstrument, ShortingAvailability
+
+# `ShortingAvailability` is imported from order.py so it's shared with the
+# ShortSelling model used in preflight responses. Re-exported from this module
+# so existing callers importing from `public_api_sdk.models.instrument` keep
+# working.
 
 
 class Trading(str, Enum):
     BUY_AND_SELL = "BUY_AND_SELL"
     LIQUIDATION_ONLY = "LIQUIDATION_ONLY"
     DISABLED = "DISABLED"
-
-
-class ShortingAvailability(str, Enum):
-    NOT_SHORTABLE = "NOT_SHORTABLE"
-    EASY_TO_BORROW = "EASY_TO_BORROW"
-    HARD_TO_BORROW = "HARD_TO_BORROW"
 
 
 class CryptoInstrumentDetails(BaseModel):

@@ -40,10 +40,12 @@ from .order import (
     OrderResponse,
     Order,
     OrderStatus,
+    ShortSelling,
     TimeInForce,
     PreflightRequest,
     PreflightResponse,
     EquityMarketSession,
+    UptickRule,
 )
 from .portfolio import (
     Portfolio,
@@ -114,6 +116,8 @@ __all__ = [
     "QuoteOutcome",
     "PreflightRequest",
     "PreflightResponse",
+    "ShortSelling",
+    "UptickRule",
     "EquityMarketSession",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",

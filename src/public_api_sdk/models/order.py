@@ -315,6 +315,64 @@ class PriceIncrement(BaseModel):
     current_increment: Optional[Decimal] = Field(None, alias="currentIncrement")
 
 
+class ShortingAvailability(str, Enum):
+    NOT_SHORTABLE = "NOT_SHORTABLE"
+    EASY_TO_BORROW = "EASY_TO_BORROW"
+    HARD_TO_BORROW = "HARD_TO_BORROW"
+
+
+class UptickRule(str, Enum):
+    """Whether the uptick rule (SSR, Regulation SHO Rule 201) is active.
+
+    Triggered when price has dropped at least 10% from the previous close.
+    """
+
+    TRIGGERED = "TRIGGERED"
+    NOT_TRIGGERED = "NOT_TRIGGERED"
+
+
+class ShortSelling(BaseModel):
+    """Short-selling information for an instrument in a preflight response."""
+
+    availability: ShortingAvailability = Field(
+        ...,
+        description="Short-selling availability for this instrument.",
+    )
+    uptick_rule: UptickRule = Field(
+        ...,
+        alias="uptickRule",
+        description=(
+            "Uptick rule (SSR) — triggered for equities when the price today or"
+            " yesterday has dropped at least 10 percent since the previous"
+            " day's closing price."
+        ),
+    )
+    hard_to_borrow_percentage_rate: Optional[Decimal] = Field(
+        None,
+        alias="hardToBorrowPercentageRate",
+        description="Hard-to-borrow rate as a percentage value.",
+    )
+    initial_margin_requirement_percentage: Optional[Decimal] = Field(
+        None,
+        alias="initialMarginRequirementPercentage",
+        description="Initial margin requirement as a percentage value.",
+    )
+    maintenance_margin_requirement_percentage: Optional[Decimal] = Field(
+        None,
+        alias="maintenanceMarginRequirementPercentage",
+        description="Maintenance margin requirement as a percentage value.",
+    )
+    max_quantity_for_locate: Optional[int] = Field(
+        None,
+        alias="maxQuantityForLocate",
+        description=(
+            "Maximum quantity that can be requested to locate for all"
+            " hard-to-borrow stocks. The actual number available may be lower"
+            " for specific stocks."
+        ),
+    )
+
+
 class PreflightResponse(BaseModel):
     instrument: OrderInstrument = Field(...)
     cusip: Optional[str] = Field(None)
@@ -324,6 +382,13 @@ class PreflightResponse(BaseModel):
     regulatory_fees: Optional[RegulatoryFees] = Field(None, alias="regulatoryFees")
     estimated_index_option_fee: Optional[Decimal] = Field(
         None, alias="estimatedIndexOptionFee"
+    )
+    estimated_execution_fee: Optional[Decimal] = Field(
+        None,
+        alias="estimatedExecutionFee",
+        description=(
+            "Estimated gateway fee when using specific venues for buying stocks."
+        ),
     )
     order_value: Decimal = Field(..., alias="orderValue")
     estimated_quantity: Optional[Decimal] = Field(None, alias="estimatedQuantity")
@@ -340,6 +405,11 @@ class PreflightResponse(BaseModel):
         None, alias="marginRequirement"
     )
     margin_impact: Optional[MarginImpact] = Field(None, alias="marginImpact")
+    short_selling: Optional[ShortSelling] = Field(
+        None,
+        alias="shortSelling",
+        description="Short-selling information for the given instrument.",
+    )
     price_increment: Optional[PriceIncrement] = Field(None, alias="priceIncrement")
 
 
