@@ -35,7 +35,13 @@ from public_api_sdk.models.option import (
     GreeksResponse,
     OptionGreeks,
 )
-from public_api_sdk.models.portfolio import BuyingPower, Portfolio, PortfolioPosition
+from public_api_sdk.models.portfolio import (
+    BuyingPower,
+    Portfolio,
+    PortfolioPosition,
+    Strategy,
+    StrategyLeg,
+)
 from public_api_sdk.models.quote import (
     OneDayChange,
     Quote,
@@ -753,3 +759,118 @@ class TestInstrumentNewFieldsDeserialization:
         assert isinstance(
             response.instruments[1].instrument_details, BondInstrumentDetails
         )
+
+
+# ---------------------------------------------------------------------------
+# Portfolio — strategies + strategyIds
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioStrategiesDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "accountId": "ACC-001",
+            "accountType": "BROKERAGE",
+            "buyingPower": {
+                "cashOnlyBuyingPower": "10000.00",
+                "buyingPower": "20000.00",
+                "optionsBuyingPower": "5000.00",
+            },
+            "equity": [],
+            "positions": [],
+            "orders": [],
+        }
+
+    def test_position_with_strategy_ids(self) -> None:
+        payload = self._base_payload()
+        payload["positions"] = [
+            {
+                "instrument": {
+                    "symbol": "AAPL260116C00270000",
+                    "name": "AAPL Jan 2026 $270 Call",
+                    "type": "OPTION",
+                },
+                "quantity": "1",
+                "strategyIds": ["strategy-uuid-1", "strategy-uuid-2"],
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        position = portfolio.positions[0]
+        assert position.strategy_ids == ["strategy-uuid-1", "strategy-uuid-2"]
+
+    def test_position_without_strategy_ids_defaults_empty(self) -> None:
+        """strategyIds is required per spec, but SDK tolerates omission with [] default."""
+        payload = self._base_payload()
+        payload["positions"] = [
+            {
+                "instrument": {"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+                "quantity": "100",
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        assert portfolio.positions[0].strategy_ids == []
+
+    def test_portfolio_with_strategies(self) -> None:
+        payload = self._base_payload()
+        payload["strategies"] = [
+            {
+                "strategyId": "strategy-uuid-1",
+                "displayName": "$180/$185 Call Spread",
+                "quantity": "2",
+                "currentValue": "500.00",
+                "percentOfPortfolio": "2.5",
+                "optionLegs": [
+                    {
+                        "symbol": "AAPL260116C00180000",
+                        "positionType": "LONG",
+                        "ratioQuantity": "1",
+                    },
+                    {
+                        "symbol": "AAPL260116C00185000",
+                        "positionType": "SHORT",
+                        "ratioQuantity": "1",
+                    },
+                ],
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies is not None
+        assert len(portfolio.strategies) == 1
+        strategy = portfolio.strategies[0]
+        assert isinstance(strategy, Strategy)
+        assert strategy.strategy_id == "strategy-uuid-1"
+        assert strategy.display_name == "$180/$185 Call Spread"
+        assert strategy.quantity == Decimal("2")
+        assert strategy.current_value == Decimal("500.00")
+        assert len(strategy.option_legs) == 2
+        assert isinstance(strategy.option_legs[0], StrategyLeg)
+        assert strategy.option_legs[0].symbol == "AAPL260116C00180000"
+        assert strategy.option_legs[0].position_type == "LONG"
+        assert strategy.option_legs[0].ratio_quantity == "1"
+        assert strategy.option_legs[1].position_type == "SHORT"
+
+    def test_portfolio_strategies_null(self) -> None:
+        """Spec: strategies is nullable — backends without strategy support return null."""
+        payload = self._base_payload()
+        payload["strategies"] = None
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies is None
+
+    def test_portfolio_strategies_absent(self) -> None:
+        portfolio = Portfolio(**self._base_payload())
+        assert portfolio.strategies is None
+
+    def test_portfolio_strategies_empty_list(self) -> None:
+        payload = self._base_payload()
+        payload["strategies"] = []
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies == []
+
+    def test_position_strategy_ids_snake_case(self) -> None:
+        """populate_by_name=True — snake_case input also works."""
+        position = PortfolioPosition(
+            instrument={"symbol": "AAPL", "name": "Apple", "type": "EQUITY"},
+            quantity=Decimal("100"),
+            strategy_ids=["s1", "s2"],
+        )
+        assert position.strategy_ids == ["s1", "s2"]

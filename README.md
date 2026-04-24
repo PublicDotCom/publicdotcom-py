@@ -178,12 +178,25 @@ for account in accounts_response.accounts:
 
 #### Get Portfolio
 
-Get a snapshot of account portfolio including positions, equity, and buying power.
+Get a snapshot of account portfolio including positions, equity, buying power, open orders, and multi-leg option strategies.
 
 ```python
 portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT_NUMBER")  # account_id optional if default set
 print(f"Total equity: {portfolio.equity}")
 print(f"Buying power: {portfolio.buying_power}")
+
+# Positions include the strategy IDs they belong to (empty list if not part of any strategy)
+for position in portfolio.positions:
+    if position.strategy_ids:
+        print(f"{position.instrument.symbol} is part of strategies: {position.strategy_ids}")
+
+# Multi-leg option strategies (e.g. spreads). Null if the backend does not support strategies.
+if portfolio.strategies:
+    for strategy in portfolio.strategies:
+        print(f"\n{strategy.display_name} (id={strategy.strategy_id})")
+        print(f"  Quantity: {strategy.quantity}, current value: ${strategy.current_value}")
+        for leg in strategy.option_legs:
+            print(f"  {leg.position_type} {leg.ratio_quantity}x {leg.symbol}")
 ```
 
 #### Get Account History

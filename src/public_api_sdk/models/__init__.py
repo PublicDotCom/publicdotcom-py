@@ -45,7 +45,12 @@ from .order import (
     PreflightResponse,
     EquityMarketSession,
 )
-from .portfolio import Portfolio
+from .portfolio import (
+    Portfolio,
+    PortfolioPosition,
+    Strategy,
+    StrategyLeg,
+)
 from .quote import (
     GreekValues,
     OneDayChange,
@@ -121,6 +126,9 @@ __all__ = [
     "OptionGreeks",
     "GreeksResponse",
     "Portfolio",
+    "PortfolioPosition",
+    "Strategy",
+    "StrategyLeg",
     "SubscriptionStatus",
     "PriceChange",
     "SubscriptionConfig",
