@@ -420,6 +420,22 @@ if preflight_response.short_selling:
         print(f"  HTB rate: {ss.hard_to_borrow_percentage_rate}%")
 ```
 
+> Pass `validate_order=False` on the request to run a hypothetical "what-if" calculation that **doesn't** check the order against your current account state (buying power, permissions, etc.). The server defaults to `true`. The same flag is accepted on `PreflightMultiLegRequest`.
+
+```python
+hypothetical = client.perform_preflight_calculation(
+    PreflightRequest(
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=1000,                 # more than account buying power
+        limit_price=Decimal("227.50"),
+        validate_order=False,          # skip account-state checks
+    )
+)
+```
+
 ##### Multi-Leg Preflight
 
 Calculate estimated costs for complex multi-leg option strategies.

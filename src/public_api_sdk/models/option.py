@@ -197,6 +197,16 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         ...,
         description="From 2-6 legs. There can be at most 1 equity leg",
     )
+    validate_order: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("validate_order", "validateOrder"),
+        serialization_alias="validateOrder",
+        description=(
+            "If true, the order is validated against the current account state."
+            " Defaults to true on the server. Set to false for hypothetical"
+            " 'what-if' calculations."
+        ),
+    )
 
     @field_validator("order_type")
     @classmethod

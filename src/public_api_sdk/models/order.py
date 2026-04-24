@@ -232,6 +232,16 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         serialization_alias="equityMarketSession",
         description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED)",
     )
+    validate_order: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("validate_order", "validateOrder"),
+        serialization_alias="validateOrder",
+        description=(
+            "If true, the order is validated against the current account state"
+            " (buying power, permissions, etc.). Defaults to true on the server."
+            " Set to false for hypothetical 'what-if' calculations."
+        ),
+    )
 
     @field_serializer("order_side")
     def serialize_order_side(self, value: OrderSide) -> str:
