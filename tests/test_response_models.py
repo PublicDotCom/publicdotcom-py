@@ -477,6 +477,37 @@ class TestGreeksResponseDeserialization:
         response = GreeksResponse(**{"greeks": []})
         assert response.greeks == []
 
+    def test_greeks_omitted_entirely(self) -> None:
+        """Spec: GreeksResponse.greeks is optional. Missing → empty list."""
+        response = GreeksResponse(**{})
+        assert response.greeks == []
+
+    def test_greek_response_without_greeks(self) -> None:
+        """Spec: GreekResponse.greeks is optional — API may omit it."""
+        payload = {"greeks": [{"symbol": "AAPL260116C00270000"}]}
+        response = GreeksResponse(**payload)
+        assert response.greeks[0].symbol == "AAPL260116C00270000"
+        assert response.greeks[0].greeks is None
+
+    def test_partial_greek_values(self) -> None:
+        """Spec: all individual greek fields are optional."""
+        partial = {"delta": "0.52"}
+        values = GreekValues(**partial)
+        assert values.delta == Decimal("0.52")
+        assert values.gamma is None
+        assert values.theta is None
+        assert values.implied_volatility is None
+
+    def test_empty_greek_values(self) -> None:
+        """All greek fields absent parses to an all-None instance."""
+        values = GreekValues(**{})
+        assert values.delta is None
+        assert values.gamma is None
+        assert values.theta is None
+        assert values.vega is None
+        assert values.rho is None
+        assert values.implied_volatility is None
+
 
 # ---------------------------------------------------------------------------
 # Quote — new fields (previousClose, oneDayChange, optionDetails)
@@ -539,6 +570,19 @@ class TestQuoteNewFieldsDeserialization:
         assert quote.option_details.greeks is not None
         assert quote.option_details.greeks.delta == Decimal("0.52")
         assert quote.option_details.greeks.implied_volatility == Decimal("0.30")
+
+    def test_option_details_without_greeks(self) -> None:
+        """Spec: OptionDetails.greeks is optional."""
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {"strikePrice": "270.00"},
+        }
+        quote = Quote(**payload)
+        assert quote.option_details is not None
+        assert quote.option_details.strike_price == Decimal("270.00")
+        assert quote.option_details.greeks is None
+        assert quote.option_details.mid_price is None
 
     def test_option_details_with_null_mid_price(self) -> None:
         """Spec: midPrice is nullable — explicit null should parse."""

@@ -229,6 +229,8 @@ if quote.option_details:
         print(f"  Δ={g.delta} Γ={g.gamma} Θ={g.theta} ν={g.vega} IV={g.implied_volatility}")
 ```
 
+> All fields on `GreekValues` are optional — the API may omit greeks for illiquid or expired contracts. Always guard with `if quote.option_details.greeks:` before reading individual values.
+
 #### Get Instrument Details
 
 Get detailed information about a specific instrument.
@@ -299,13 +301,16 @@ option_chain = client.get_option_chain(
 
 #### Get Option Greeks
 
-Get Greeks for a single option contract (OSI format).
+Get Greeks for a single option contract (OSI format). The API may return a symbol without any greeks (e.g. for illiquid contracts), and individual greek fields can be null — always guard before reading them.
 
 ```python
 greeks = client.get_option_greek(
     osi_symbol="AAPL260116C00270000"
 )
-print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
+if greeks.greeks:
+    print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
+else:
+    print("No greeks available for this contract")
 ```
 
 For multiple option symbols, use `get_option_greeks` (plural):
@@ -315,7 +320,8 @@ greeks_response = client.get_option_greeks(
     osi_symbols=["AAPL260116C00270000", "AAPL260116P00270000"]
 )
 for greek in greeks_response.greeks:
-    print(f"Delta: {greek.greeks.delta}, Gamma: {greek.greeks.gamma}")
+    if greek.greeks:
+        print(f"{greek.symbol}: Δ={greek.greeks.delta} Γ={greek.greeks.gamma} IV={greek.greeks.implied_volatility}")
 ```
 
 ### Order Management

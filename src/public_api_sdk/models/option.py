@@ -358,20 +358,25 @@ class MultilegOrderResult(BaseModel):
 
 
 class OptionGreeks(BaseModel):
-    """Greeks for a single option symbol"""
+    """Greeks for a single option symbol.
+
+    `greeks` is optional — the API may omit it for symbols that have no
+    available greek data (e.g. expired or illiquid contracts).
+    """
+
     symbol: str = Field(
         ...,
-        description="The OSI-normalized option symbol"
+        description="The OSI-normalized option symbol",
     )
-    greeks: GreekValues = Field(
-        ...,
-        description="The Greek values for this option"
+    greeks: Optional[GreekValues] = Field(
+        None,
+        description="The Greek values for this option. May be null.",
     )
 
 
 class GreeksResponse(BaseModel):
     """Response containing greeks for multiple option symbols"""
     greeks: List[OptionGreeks] = Field(
-        ...,
-        description="List of greeks for each symbol in the request"
+        default_factory=list,
+        description="List of greeks for each symbol in the request",
     )
