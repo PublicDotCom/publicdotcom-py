@@ -1,7 +1,17 @@
 from .auth import AccessTokenResponse
 from .account import Account, AccountType, AccountsResponse
 from .history import HistoryRequest, HistoryResponsePage
-from .instrument import Instrument, InstrumentsRequest, InstrumentsResponse, Trading
+from .instrument import (
+    BondInstrumentDetails,
+    CryptoInstrumentDetails,
+    Instrument,
+    InstrumentDetails,
+    InstrumentsRequest,
+    InstrumentsResponse,
+    OptionPriceIncrement,
+    ShortingAvailability,
+    Trading,
+)
 from .instrument_type import InstrumentType
 from .option import (
     OptionChainRequest,
@@ -67,10 +77,15 @@ __all__ = [
     "AccountsResponse",
     "HistoryRequest",
     "HistoryResponsePage",
+    "BondInstrumentDetails",
+    "CryptoInstrumentDetails",
     "Instrument",
+    "InstrumentDetails",
     "InstrumentsRequest",
     "InstrumentsResponse",
     "InstrumentType",
+    "OptionPriceIncrement",
+    "ShortingAvailability",
     "Trading",
     "OptionChainRequest",
     "OptionChainResponse",

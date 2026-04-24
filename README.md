@@ -233,9 +233,15 @@ if quote.option_details:
 
 #### Get Instrument Details
 
-Get detailed information about a specific instrument.
+Get detailed information about a specific instrument, including trading permissions, short-selling availability, option price increments, and type-specific details (bond or crypto).
 
 ```python
+from public_api_sdk import (
+    BondInstrumentDetails,
+    CryptoInstrumentDetails,
+    ShortingAvailability,
+)
+
 instrument = client.get_instrument(
     symbol="AAPL",
     instrument_type=InstrumentType.EQUITY
@@ -247,6 +253,25 @@ print(f"Trading: {instrument.trading}")
 print(f"Fractional Trading: {instrument.fractional_trading}")
 print(f"Option Trading: {instrument.option_trading}")
 print(f"Option Spread Trading: {instrument.option_spread_trading}")
+
+# Short-selling — only populated for shortable equities
+if instrument.shorting_availability:
+    print(f"Shorting: {instrument.shorting_availability.value}")
+    if instrument.shorting_availability == ShortingAvailability.HARD_TO_BORROW:
+        print(f"  HTB rate: {instrument.hard_to_borrow_percentage_rate}%")
+
+# Option price increments — present for optionable equities
+if instrument.option_contract_price_increments:
+    inc = instrument.option_contract_price_increments
+    print(f"Option increments: below $3 = {inc.increment_below_3}, above $3 = {inc.increment_above_3}")
+
+# Type-specific details (polymorphic on payload_type)
+details = instrument.instrument_details
+if isinstance(details, CryptoInstrumentDetails):
+    print(f"Crypto precision: qty={details.crypto_quantity_precision}, price={details.crypto_price_precision}")
+    print(f"Tradable in NY: {details.tradable_in_new_york}")
+elif isinstance(details, BondInstrumentDetails):
+    print(f"Bond outstanding: {details.has_outstanding}")
 ```
 
 #### Get All Instruments

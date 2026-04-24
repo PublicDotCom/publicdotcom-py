@@ -20,7 +20,15 @@ from public_api_sdk.models.history import (
     HistoryTransaction,
     TransactionType,
 )
-from public_api_sdk.models.instrument import Instrument, InstrumentsResponse, Trading
+from public_api_sdk.models.instrument import (
+    BondInstrumentDetails,
+    CryptoInstrumentDetails,
+    Instrument,
+    InstrumentsResponse,
+    OptionPriceIncrement,
+    ShortingAvailability,
+    Trading,
+)
 from public_api_sdk.models.instrument_type import InstrumentType
 from public_api_sdk.models.option import (
     GreekValues,
@@ -604,3 +612,144 @@ class TestQuoteNewFieldsDeserialization:
         assert quote.previous_close is None
         assert quote.one_day_change is None
         assert quote.option_details is None
+
+
+# ---------------------------------------------------------------------------
+# Instrument — new fields (bond details, shorting, option price increments)
+# ---------------------------------------------------------------------------
+
+
+class TestInstrumentNewFieldsDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "trading": "BUY_AND_SELL",
+            "fractionalTrading": "BUY_AND_SELL",
+            "optionTrading": "BUY_AND_SELL",
+            "optionSpreadTrading": "BUY_AND_SELL",
+        }
+
+    def test_crypto_instrument_details(self) -> None:
+        payload = self._base_payload()
+        payload["instrument"] = {"symbol": "BTC", "type": "CRYPTO"}
+        payload["instrumentDetails"] = {
+            "payloadType": "Crypto",
+            "cryptoQuantityPrecision": 8,
+            "cryptoPricePrecision": 2,
+            "tradableInNewYork": True,
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, CryptoInstrumentDetails)
+        assert instrument.instrument_details.crypto_quantity_precision == 8
+        assert instrument.instrument_details.crypto_price_precision == 2
+        assert instrument.instrument_details.tradable_in_new_york is True
+
+    def test_bond_instrument_details(self) -> None:
+        payload = self._base_payload()
+        payload["instrument"] = {"symbol": "US912828XYZ", "type": "BOND"}
+        payload["instrumentDetails"] = {
+            "payloadType": "Bond",
+            "hasOutstanding": True,
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, BondInstrumentDetails)
+        assert instrument.instrument_details.has_outstanding is True
+
+    def test_bond_instrument_details_minimal(self) -> None:
+        """Bond payload with only payloadType should still parse."""
+        payload = self._base_payload()
+        payload["instrumentDetails"] = {"payloadType": "Bond"}
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, BondInstrumentDetails)
+        assert instrument.instrument_details.has_outstanding is None
+
+    def test_crypto_details_all_fields_optional(self) -> None:
+        """Crypto variant should parse even if only payloadType is present."""
+        payload = self._base_payload()
+        payload["instrumentDetails"] = {"payloadType": "Crypto"}
+        instrument = Instrument(**payload)
+        assert instrument.instrument_details is not None
+        assert isinstance(instrument.instrument_details, CryptoInstrumentDetails)
+        assert instrument.instrument_details.crypto_quantity_precision is None
+
+    def test_shorting_availability(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "HARD_TO_BORROW"
+        payload["hardToBorrowPercentageRate"] = "5.25"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.HARD_TO_BORROW
+        assert instrument.hard_to_borrow_percentage_rate == Decimal("5.25")
+
+    def test_shorting_easy_to_borrow(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "EASY_TO_BORROW"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.EASY_TO_BORROW
+
+    def test_shorting_not_shortable(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "NOT_SHORTABLE"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.NOT_SHORTABLE
+
+    def test_option_contract_price_increments(self) -> None:
+        payload = self._base_payload()
+        payload["optionContractPriceIncrements"] = {
+            "incrementBelow3": "0.05",
+            "incrementAbove3": "0.10",
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(
+            instrument.option_contract_price_increments, OptionPriceIncrement
+        )
+        assert instrument.option_contract_price_increments.increment_below_3 == Decimal(
+            "0.05"
+        )
+        assert instrument.option_contract_price_increments.increment_above_3 == Decimal(
+            "0.10"
+        )
+
+    def test_all_new_fields_absent(self) -> None:
+        """New fields are all optional — should parse without them."""
+        instrument = Instrument(**self._base_payload())
+        assert instrument.instrument_details is None
+        assert instrument.shorting_availability is None
+        assert instrument.hard_to_borrow_percentage_rate is None
+        assert instrument.option_contract_price_increments is None
+
+    def test_instruments_response_mixed_types(self) -> None:
+        """Response containing both bond and crypto instruments should parse."""
+        payload = {
+            "instruments": [
+                {
+                    "instrument": {"symbol": "BTC", "type": "CRYPTO"},
+                    "trading": "BUY_AND_SELL",
+                    "fractionalTrading": "BUY_AND_SELL",
+                    "optionTrading": "DISABLED",
+                    "optionSpreadTrading": "DISABLED",
+                    "instrumentDetails": {
+                        "payloadType": "Crypto",
+                        "cryptoQuantityPrecision": 8,
+                    },
+                },
+                {
+                    "instrument": {"symbol": "US912828XYZ", "type": "BOND"},
+                    "trading": "BUY_AND_SELL",
+                    "fractionalTrading": "DISABLED",
+                    "optionTrading": "DISABLED",
+                    "optionSpreadTrading": "DISABLED",
+                    "instrumentDetails": {
+                        "payloadType": "Bond",
+                        "hasOutstanding": True,
+                    },
+                },
+            ]
+        }
+        response = InstrumentsResponse(**payload)
+        assert len(response.instruments) == 2
+        assert isinstance(
+            response.instruments[0].instrument_details, CryptoInstrumentDetails
+        )
+        assert isinstance(
+            response.instruments[1].instrument_details, BondInstrumentDetails
+        )
