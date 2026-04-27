@@ -23,7 +23,7 @@ from .models import (
     OptionChainResponse,
     OptionExpirationsRequest,
     OptionExpirationsResponse,
-    OptionGreeks,
+    OptionGreeksResponse,
     Order,
     OrderInstrument,
     OrderRequest,
@@ -361,7 +361,7 @@ class AsyncPublicApiClient:
         self,
         osi_symbol: str,
         account_id: Optional[str] = None,
-    ) -> OptionGreeks:
+    ) -> OptionGreeksResponse:
         """Get option greeks for a single OSI-normalized symbol.
 
         Args:

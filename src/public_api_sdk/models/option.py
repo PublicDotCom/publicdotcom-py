@@ -352,8 +352,13 @@ MultilegOrderResult = OrderResult
 """Deprecated alias for `OrderResult`. Will be removed in a future release."""
 
 
-class OptionGreeks(BaseModel):
-    """Greeks for a single option symbol.
+class OptionGreeksResponse(BaseModel):
+    """Per-symbol greeks entry returned in `GreeksResponse.greeks`.
+
+    Maps to the spec's `GreekResponse` (symbol + nullable greeks). Distinct
+    from `GreekValues`, which is just the numerical greek values
+    (delta/gamma/theta/vega/rho/impliedVolatility) — that's the spec's own
+    `OptionGreeks` schema, named differently here to avoid the collision.
 
     `greeks` is optional — the API may omit it for symbols that have no
     available greek data (e.g. expired or illiquid contracts).
@@ -369,9 +374,14 @@ class OptionGreeks(BaseModel):
     )
 
 
+# Backwards-compatible alias.
+OptionGreeks = OptionGreeksResponse
+"""Deprecated alias for `OptionGreeksResponse`. Will be removed in a future release."""
+
+
 class GreeksResponse(BaseModel):
     """Response containing greeks for multiple option symbols"""
-    greeks: List[OptionGreeks] = Field(
+    greeks: List[OptionGreeksResponse] = Field(
         default_factory=list,
         description="List of greeks for each symbol in the request",
     )

@@ -28,6 +28,7 @@ from .option import (
     MultilegOrderRequest,
     MultilegOrderResult,
     OptionGreeks,
+    OptionGreeksResponse,
     GreeksResponse,
 )
 from .order import (
@@ -136,6 +137,7 @@ __all__ = [
     "MultilegOrderRequest",
     "MultilegOrderResult",
     "OptionGreeks",
+    "OptionGreeksResponse",
     "GreeksResponse",
     "Portfolio",
     "PortfolioPosition",
