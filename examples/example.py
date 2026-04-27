@@ -12,7 +12,7 @@ from public_api_sdk import (
     HistoryRequest,
     InstrumentsRequest,
     InstrumentType,
-    Trading,
+    TradingPermission,
     PublicApiClient,
     PublicApiClientConfiguration,
     OrderExpirationRequest,
@@ -61,7 +61,7 @@ def main() -> None:
         instruments = public_api_client.get_all_instruments(
             InstrumentsRequest(
                 type_filter=[InstrumentType.EQUITY],
-                trading_filter=[Trading.BUY_AND_SELL],
+                trading_filter=[TradingPermission.BUY_AND_SELL],
                 fractional_trading_filter=None,
                 option_trading_filter=None,
                 option_spread_trading_filter=None,

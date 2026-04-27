@@ -309,12 +309,12 @@ elif isinstance(details, BondInstrumentDetails):
 Retrieve all available trading instruments with optional filtering.
 
 ```python
-from public_api_sdk import InstrumentsRequest, InstrumentType, Trading
+from public_api_sdk import InstrumentsRequest, InstrumentType, TradingPermission
 
 instruments = client.get_all_instruments(
     InstrumentsRequest(
         type_filter=[InstrumentType.EQUITY],
-        trading_filter=[Trading.BUY_AND_SELL],
+        trading_filter=[TradingPermission.BUY_AND_SELL],
     )
 )
 ```
@@ -899,10 +899,10 @@ quotes = await client.get_quotes([
 instrument = await client.get_instrument("AAPL", InstrumentType.EQUITY)
 
 # All tradeable instruments
-from public_api_sdk import InstrumentsRequest, Trading
+from public_api_sdk import InstrumentsRequest, TradingPermission
 
 instruments = await client.get_all_instruments(
-    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[Trading.BUY_AND_SELL])
+    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[TradingPermission.BUY_AND_SELL])
 )
 ```
 
