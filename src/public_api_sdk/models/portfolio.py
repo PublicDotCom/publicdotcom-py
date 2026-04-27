@@ -5,18 +5,12 @@ from typing import List, Optional
 
 from pydantic import AliasChoices, BaseModel, Field
 
+from .account import AccountType
 from .instrument_type import InstrumentType
 from .order import Order
 
-
-class AccountType(str, Enum):
-    BROKERAGE = "BROKERAGE"
-    HIGH_YIELD = "HIGH_YIELD"
-    BOND_ACCOUNT = "BOND_ACCOUNT"
-    RIA_ASSET = "RIA_ASSET"
-    TREASURY = "TREASURY"
-    TRADITIONAL_IRA = "TRADITIONAL_IRA"
-    ROTH_IRA = "ROTH_IRA"
+# `AccountType` is re-exported here so existing imports from
+# `public_api_sdk.models.portfolio` keep working; canonical home is `account.py`.
 
 
 class BuyingPower(BaseModel):

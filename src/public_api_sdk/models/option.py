@@ -13,6 +13,8 @@ from pydantic import (
 )
 
 from .order import (
+    LegInstrument,
+    LegInstrumentType,
     OpenCloseIndicator,
     OrderExpirationRequest,
     OrderInstrument,
@@ -25,6 +27,10 @@ from .order import (
     OptionType,
 )
 from .quote import GreekValues, Quote
+
+# `LegInstrument` and `LegInstrumentType` are imported here so they remain
+# available via `public_api_sdk.models.option` for backwards compatibility.
+# Their canonical home is `order.py`.
 
 
 class MultilegValidationMixin:
@@ -105,16 +111,6 @@ class OptionChainResponse(BaseModel):
         ...,
         description="List of put quotes for the given option chain.",
     )
-
-
-class LegInstrumentType(str, Enum):
-    EQUITY = "EQUITY"
-    OPTION = "OPTION"
-
-
-class LegInstrument(BaseModel):
-    symbol: str = Field(...)
-    type: LegInstrumentType = Field(...)
 
 
 class OrderLegRequest(BaseModel):
