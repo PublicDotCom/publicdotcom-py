@@ -19,13 +19,13 @@ from .order import (
     OptionDetails,
     OrderExpirationRequest,
     OrderInstrument,
+    OrderPriceIncrement,
     OrderResult,
     OrderSide,
     OrderType,
     RegulatoryFees,
     MarginRequirement,
     MarginImpact,
-    PriceIncrement,
     OptionType,
 )
 from .quote import GreekValues, Quote
@@ -267,7 +267,7 @@ class PreflightMultiLegResponse(BaseModel):
         None, alias="marginRequirement"
     )
     margin_impact: Optional[MarginImpact] = Field(None, alias="marginImpact")
-    price_increment: Optional[PriceIncrement] = Field(None, alias="priceIncrement")
+    price_increment: Optional[OrderPriceIncrement] = Field(None, alias="priceIncrement")
 
 
 class MultilegOrderRequest(MultilegValidationMixin, BaseModel):

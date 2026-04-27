@@ -329,10 +329,24 @@ class MarginImpact(BaseModel):
     )
 
 
-class PriceIncrement(BaseModel):
+class OrderPriceIncrement(BaseModel):
+    """Price-increment information returned with preflight responses.
+
+    Includes the current increment (which the order must respect) plus the
+    below-$3 and above-$3 increments that apply to the underlying option.
+
+    Distinct from `OptionPriceIncrement` on `Instrument`, which has only the
+    below-$3 / above-$3 fields and no current increment.
+    """
+
     increment_below_3: Optional[Decimal] = Field(None, alias="incrementBelow3")
     increment_above_3: Optional[Decimal] = Field(None, alias="incrementAbove3")
     current_increment: Optional[Decimal] = Field(None, alias="currentIncrement")
+
+
+# Backwards-compatible alias.
+PriceIncrement = OrderPriceIncrement
+"""Deprecated alias for `OrderPriceIncrement`. Will be removed in a future release."""
 
 
 class ShortingAvailability(str, Enum):
@@ -430,7 +444,7 @@ class PreflightResponse(BaseModel):
         alias="shortSelling",
         description="Short-selling information for the given instrument.",
     )
-    price_increment: Optional[PriceIncrement] = Field(None, alias="priceIncrement")
+    price_increment: Optional[OrderPriceIncrement] = Field(None, alias="priceIncrement")
 
 
 class OrderRequest(OrderValidationMixin, BaseModel):
