@@ -66,6 +66,7 @@ from .models import (
     SubscriptionStatus,
     TimeInForce,
     Trading,
+    TradingPermission,
     UptickRule,
     WaitTimeoutError,
 )
@@ -100,6 +101,7 @@ __all__ = [
     "OptionPriceIncrement",
     "ShortingAvailability",
     "Trading",
+    "TradingPermission",
     "OptionChainRequest",
     "OptionChainResponse",
     "OptionExpirationsRequest",

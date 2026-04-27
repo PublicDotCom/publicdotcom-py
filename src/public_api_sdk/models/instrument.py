@@ -13,10 +13,21 @@ from .order import OrderInstrument, ShortingAvailability
 # working.
 
 
-class Trading(str, Enum):
+class TradingPermission(str, Enum):
+    """Trading permission for an instrument or instrument capability.
+
+    Used as the value type for `Instrument.trading`, `fractional_trading`,
+    `option_trading`, and `option_spread_trading`.
+    """
+
     BUY_AND_SELL = "BUY_AND_SELL"
     LIQUIDATION_ONLY = "LIQUIDATION_ONLY"
     DISABLED = "DISABLED"
+
+
+# Backwards-compatible alias.
+Trading = TradingPermission
+"""Deprecated alias for `TradingPermission`. Will be removed in a future release."""
 
 
 class CryptoInstrumentDetails(BaseModel):
@@ -109,18 +120,18 @@ class Instrument(BaseModel):
         return data
 
     instrument: OrderInstrument = Field(...)
-    trading: Trading = Field(...)
-    fractional_trading: Trading = Field(
+    trading: TradingPermission = Field(...)
+    fractional_trading: TradingPermission = Field(
         ...,
         validation_alias=AliasChoices("fractional_trading", "fractionalTrading"),
         serialization_alias="fractionalTrading",
     )
-    option_trading: Trading = Field(
+    option_trading: TradingPermission = Field(
         ...,
         validation_alias=AliasChoices("option_trading", "optionTrading"),
         serialization_alias="optionTrading",
     )
-    option_spread_trading: Trading = Field(
+    option_spread_trading: TradingPermission = Field(
         ...,
         validation_alias=AliasChoices("option_spread_trading", "optionSpreadTrading"),
         serialization_alias="optionSpreadTrading",
@@ -167,13 +178,13 @@ class InstrumentsRequest(BaseModel):
         serialization_alias="typeFilter",
         description="optional set of security types to filter by",
     )
-    trading_filter: Optional[List[Trading]] = Field(
+    trading_filter: Optional[List[TradingPermission]] = Field(
         None,
         validation_alias=AliasChoices("trading_filter", "tradingFilter"),
         serialization_alias="tradingFilter",
         description="optional set of trading statuses to filter by",
     )
-    fractional_trading_filter: Optional[List[Trading]] = Field(
+    fractional_trading_filter: Optional[List[TradingPermission]] = Field(
         None,
         validation_alias=AliasChoices(
             "fractional_trading_filter", "fractionalTradingFilter"
@@ -181,13 +192,13 @@ class InstrumentsRequest(BaseModel):
         serialization_alias="fractionalTradingFilter",
         description="optional set of fractional trading statuses to filter by",
     )
-    option_trading_filter: Optional[List[Trading]] = Field(
+    option_trading_filter: Optional[List[TradingPermission]] = Field(
         None,
         validation_alias=AliasChoices("option_trading_filter", "optionTradingFilter"),
         serialization_alias="optionTradingFilter",
         description="optional set of option trading statuses to filter by",
     )
-    option_spread_trading_filter: Optional[List[Trading]] = Field(
+    option_spread_trading_filter: Optional[List[TradingPermission]] = Field(
         None,
         validation_alias=AliasChoices(
             "option_spread_trading_filter", "optionSpreadTradingFilter"

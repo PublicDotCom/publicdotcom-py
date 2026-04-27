@@ -11,6 +11,7 @@ from .instrument import (
     OptionPriceIncrement,
     ShortingAvailability,
     Trading,
+    TradingPermission,
 )
 from .instrument_type import InstrumentType
 from .option import (
@@ -97,6 +98,7 @@ __all__ = [
     "OptionPriceIncrement",
     "ShortingAvailability",
     "Trading",
+    "TradingPermission",
     "OptionChainRequest",
     "OptionChainResponse",
     "OptionExpirationsRequest",
