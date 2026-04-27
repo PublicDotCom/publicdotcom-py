@@ -19,6 +19,7 @@ from .order import (
     OptionDetails,
     OrderExpirationRequest,
     OrderInstrument,
+    OrderResult,
     OrderSide,
     OrderType,
     RegulatoryFees,
@@ -29,9 +30,9 @@ from .order import (
 )
 from .quote import GreekValues, Quote
 
-# `LegInstrument`, `LegInstrumentType`, and `OptionDetails` are imported here so
-# they remain available via `public_api_sdk.models.option` for backwards
-# compatibility. Their canonical home is `order.py`.
+# `LegInstrument`, `LegInstrumentType`, `OptionDetails`, and `OrderResult` are
+# imported here so they remain available via `public_api_sdk.models.option`
+# for backwards compatibility. Their canonical home is `order.py`.
 
 
 class MultilegValidationMixin:
@@ -345,8 +346,10 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
         return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-class MultilegOrderResult(BaseModel):
-    order_id: str = Field(..., alias="orderId")
+# Backwards-compatible alias — `MultilegOrderResult` is identical in shape to
+# the spec's ApiOrderResult, which all order-placement endpoints share.
+MultilegOrderResult = OrderResult
+"""Deprecated alias for `OrderResult`. Will be removed in a future release."""
 
 
 class OptionGreeks(BaseModel):

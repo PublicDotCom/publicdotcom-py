@@ -546,8 +546,20 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         return value.value if value else None
 
 
-class OrderResponse(BaseModel):
+class OrderResult(BaseModel):
+    """Result of placing or replacing an order — wraps the new order_id.
+
+    Maps to the spec's `ApiOrderResult`, which is the response schema for
+    `POST /order`, `PUT /order`, and `POST /order/multileg`.
+    """
+
     order_id: str = Field(..., alias="orderId")
+
+
+# Backwards-compatible aliases — both names previously existed and were
+# functionally identical to ApiOrderResult.
+OrderResponse = OrderResult
+"""Deprecated alias for `OrderResult`. Will be removed in a future release."""
 
 
 class CancelAndReplaceRequest(BaseModel):

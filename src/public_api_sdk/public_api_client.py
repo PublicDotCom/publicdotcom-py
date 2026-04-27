@@ -14,7 +14,6 @@ from .models import (
     InstrumentsResponse,
     InstrumentType,
     MultilegOrderRequest,
-    MultilegOrderResult,
     NewOrder,
     OptionChainRequest,
     OptionChainResponse,
@@ -24,7 +23,7 @@ from .models import (
     Order,
     OrderInstrument,
     OrderRequest,
-    OrderResponse,
+    OrderResult,
     Portfolio,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
@@ -424,7 +423,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
 
         return NewOrder(
             order_id=order_response.order_id,
@@ -457,7 +456,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order/multileg",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_result = MultilegOrderResult(**response)
+        order_result = OrderResult(**response)
 
         return NewOrder(
             order_id=order_result.order_id,
@@ -532,7 +531,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
         return NewOrder(
             order_id=order_response.order_id,
             account_id=account_id,
