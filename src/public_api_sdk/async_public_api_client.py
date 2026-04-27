@@ -1,5 +1,7 @@
 """AsyncPublicApiClient — async counterpart to PublicApiClient."""
 
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING
 
 from .async_api_client import AsyncApiClient
@@ -8,6 +10,10 @@ from .async_order_subscription_manager import AsyncOrderSubscriptionManager
 from .async_price_stream import AsyncPriceStream
 from .async_strategy_preflight import AsyncStrategyPreflight
 from .async_subscription_manager import AsyncPriceSubscriptionManager
+from .strategy_preflight import (
+    _SpreadKind,
+    _build_two_leg_spread_request,
+)
 from .models import (
     AccountsResponse,
     CancelAndReplaceRequest,
@@ -34,6 +40,7 @@ from .models import (
     PreflightRequest,
     PreflightResponse,
     Quote,
+    TimeInForce,
 )
 from .models.async_new_order import AsyncNewOrder
 
@@ -425,6 +432,122 @@ class AsyncPublicApiClient:
             json_data=preflight_request.model_dump(by_alias=True, exclude_none=True),
         )
         return PreflightMultiLegResponse(**response)
+
+    async def preflight_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Call Spread (CALL credit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_call_credit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Call Spread (CALL debit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_call_debit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Put Spread (PUT credit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_put_credit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Put Spread (PUT debit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_put_debit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
 
     # ------------------------------------------------------------------ #
     # Order placement                                                      #

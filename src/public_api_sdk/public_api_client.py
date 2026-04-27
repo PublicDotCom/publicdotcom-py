@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from .api_client import ApiClient
@@ -30,10 +32,15 @@ from .models import (
     PreflightRequest,
     PreflightResponse,
     Quote,
+    TimeInForce,
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
-from .strategy_preflight import StrategyPreflight
+from .strategy_preflight import (
+    StrategyPreflight,
+    _SpreadKind,
+    _build_two_leg_spread_request,
+)
 from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
@@ -402,6 +409,206 @@ class PublicApiClient:
             json_data=preflight_request.model_dump(by_alias=True, exclude_none=True),
         )
         return PreflightMultiLegResponse(**response)
+
+    def preflight_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Call Spread (CALL credit spread).
+
+        Sells a lower-strike call and buys a higher-strike call as protection.
+        Profits if the underlying stays *below* the sell strike at expiry. Net
+        cash flow at entry is a credit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the lower-strike CALL to sell
+                (e.g. ``"AAPL251219C00190000"``).
+            buy_contract_osi: OSI symbol of the higher-strike CALL to buy.
+            quantity: Number of spread contracts.
+            limit_price: Minimum net credit to accept, as a positive value
+                (e.g. ``Decimal("2.50")`` for a $2.50 per-share credit). The
+                SDK negates this for the API automatically.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, runs a hypothetical "what-if"
+                preflight that doesn't check the order against current account
+                state. Server defaults to ``True``.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Returns:
+            ``PreflightMultiLegResponse`` with estimated credit, commission,
+            and buying-power impact.
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a CALL, or
+                ``sell_strike >= buy_strike``.
+            ValidationError: If the API rejects the request (HTTP 400).
+            APIError: For any other API error.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Call Spread (CALL debit spread).
+
+        Buys a lower-strike call and sells a higher-strike call to offset
+        the cost. Profits if the underlying rises *above* the sell strike
+        at expiry. Net cash flow at entry is a debit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the higher-strike CALL to sell.
+            buy_contract_osi: OSI symbol of the lower-strike CALL to buy.
+            quantity: Number of spread contracts.
+            limit_price: Maximum net debit to pay, as a positive value
+                (e.g. ``Decimal("3.00")`` for a $3.00 per-share debit).
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Returns:
+            ``PreflightMultiLegResponse`` with estimated cost and impact.
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a CALL, or
+                ``buy_strike >= sell_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Put Spread (PUT credit spread).
+
+        Sells a higher-strike put and buys a lower-strike put as protection.
+        Profits if the underlying stays *above* the sell strike at expiry.
+        Net cash flow at entry is a credit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the higher-strike PUT to sell.
+            buy_contract_osi: OSI symbol of the lower-strike PUT to buy.
+            quantity: Number of spread contracts.
+            limit_price: Minimum net credit to accept, as a positive value.
+                The SDK negates this for the API automatically.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a PUT, or
+                ``sell_strike <= buy_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Put Spread (PUT debit spread).
+
+        Buys a higher-strike put and sells a lower-strike put to offset
+        the cost. Profits if the underlying falls *below* the sell strike
+        at expiry. Net cash flow at entry is a debit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the lower-strike PUT to sell.
+            buy_contract_osi: OSI symbol of the higher-strike PUT to buy.
+            quantity: Number of spread contracts.
+            limit_price: Maximum net debit to pay, as a positive value.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a PUT, or
+                ``buy_strike <= sell_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
 
     def place_order(
         self,

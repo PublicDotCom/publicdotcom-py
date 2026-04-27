@@ -511,9 +511,71 @@ print(f"  Buying Power Required: ${bpr:.2f}")
 print("\n" + "="*70)
 ```
 
-##### Strategy Preflight Helpers
+##### Vertical Spread Preflight (OSI-direct)
 
-The SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
+For each of the four common vertical spread strategies the SDK exposes a dedicated preflight method on the client. Pass the OSI symbols of the two contracts (e.g. as obtained from `get_option_chain`), the contract count, and the limit price — the SDK validates that both legs share an underlying and expiration, that the strikes are ordered correctly for the strategy, and signs the limit price for credit vs. debit before sending.
+
+```python
+from decimal import Decimal
+from public_api_sdk import TimeInForce
+
+# Bear Call Spread — profits if AAPL stays below $190 at expiry.
+# limit_price is the minimum credit you'll accept (always positive).
+result = client.preflight_call_credit_spread(
+    sell_contract_osi="AAPL251219C00190000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+print(f"Estimated credit: ${abs(result.estimated_cost or 0):.2f}")
+print(f"Buying power required: ${result.buying_power_requirement or 0:.2f}")
+
+# Bull Call Spread — profits if AAPL rises above $200 at expiry.
+# limit_price is the maximum debit you'll pay (positive).
+result = client.preflight_call_debit_spread(
+    sell_contract_osi="AAPL251219C00200000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("3.00"),
+)
+
+# Bull Put Spread — profits if AAPL stays above $185 at expiry.
+result = client.preflight_put_credit_spread(
+    sell_contract_osi="AAPL251219P00185000",
+    buy_contract_osi="AAPL251219P00180000",
+    quantity=1,
+    limit_price=Decimal("1.20"),
+)
+
+# Bear Put Spread — profits if AAPL falls below $185 at expiry.
+result = client.preflight_put_debit_spread(
+    sell_contract_osi="AAPL251219P00180000",
+    buy_contract_osi="AAPL251219P00185000",
+    quantity=1,
+    limit_price=Decimal("2.10"),
+)
+```
+
+All four methods accept the same optional kwargs:
+
+- `time_in_force` — `TimeInForce.DAY` (default) or `TimeInForce.GTD`
+- `expiration_time` — required when `time_in_force=TimeInForce.GTD`
+- `validate_order` — set to `False` for hypothetical "what-if" calculations that don't check buying power / permissions
+- `account_id` — overrides `default_account_number`
+
+> **Strike-ordering is validated locally before the network call**, so typos and copy-paste errors are caught immediately:
+> - **CALL credit** (Bear): `sell_strike < buy_strike`
+> - **CALL debit** (Bull): `buy_strike < sell_strike`
+> - **PUT credit** (Bull): `sell_strike > buy_strike`
+> - **PUT debit** (Bear): `buy_strike > sell_strike`
+>
+> The SDK also rejects pairs that don't share the same underlying or expiration date — a `ValueError` is raised before any HTTP request is made.
+
+The same four methods exist on `AsyncPublicApiClient`; just `await` them.
+
+##### Strategy Preflight Helpers (strikes-based)
+
+For an alternative interface that takes strikes + symbol instead of pre-built OSI symbols, the SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
 
 **CALL credit spread (Bear Call Spread)** — profits if the underlying stays *below* the sell strike at expiry.
 
