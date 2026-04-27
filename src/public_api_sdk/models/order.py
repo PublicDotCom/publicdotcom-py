@@ -289,10 +289,20 @@ class OptionType(str, Enum):
 
 
 class OptionDetails(BaseModel):
+    """Option-specific details on a preflight response.
+
+    Used in both single-leg `PreflightResponse` (top-level field) and per-leg
+    inside `PreflightLegResponse`. Maps to the spec's `GatewayOptionDetails`.
+
+    `option_expire_date` is the spec's `date` format (YYYY-MM-DD) — kept as a
+    string to avoid implicit-midnight-UTC conversion that a `datetime` field
+    would introduce.
+    """
+
     base_symbol: str = Field(..., alias="baseSymbol")
     type: OptionType = Field(..., alias="type")
     strike_price: Decimal = Field(..., alias="strikePrice")
-    option_expire_date: datetime = Field(..., alias="optionExpireDate")
+    option_expire_date: str = Field(..., alias="optionExpireDate")
 
 
 class OptionRebate(BaseModel):

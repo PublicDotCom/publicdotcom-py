@@ -16,6 +16,7 @@ from .order import (
     LegInstrument,
     LegInstrumentType,
     OpenCloseIndicator,
+    OptionDetails,
     OrderExpirationRequest,
     OrderInstrument,
     OrderSide,
@@ -28,9 +29,9 @@ from .order import (
 )
 from .quote import GreekValues, Quote
 
-# `LegInstrument` and `LegInstrumentType` are imported here so they remain
-# available via `public_api_sdk.models.option` for backwards compatibility.
-# Their canonical home is `order.py`.
+# `LegInstrument`, `LegInstrumentType`, and `OptionDetails` are imported here so
+# they remain available via `public_api_sdk.models.option` for backwards
+# compatibility. Their canonical home is `order.py`.
 
 
 class MultilegValidationMixin:
@@ -232,13 +233,6 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
     @field_serializer("limit_price")
     def serialize_decimal(self, value: Decimal) -> str:
         return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-
-class OptionDetails(BaseModel):
-    base_symbol: str = Field(..., alias="baseSymbol")
-    type: OptionType = Field(...)
-    strike_price: Decimal = Field(..., alias="strikePrice")
-    option_expire_date: str = Field(..., alias="optionExpireDate")
 
 
 class PreflightLegResponse(BaseModel):
