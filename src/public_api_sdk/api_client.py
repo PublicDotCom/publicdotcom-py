@@ -108,7 +108,7 @@ class ApiClient:
         except json.JSONDecodeError:
             response_data = {"raw_content": response.text}
 
-        if response.status_code == 200:
+        if 200 <= response.status_code < 300:
             return response_data
 
         # extract error message from response

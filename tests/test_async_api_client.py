@@ -153,6 +153,16 @@ class TestAsyncApiClientHandleResponse:
         result = self.client._handle_response(response)
         assert result == {}
 
+    def test_201_returns_created_resource_data(self) -> None:
+        response = _make_httpx_response(201, data={"orderId": "ORDER-123"})
+        result = self.client._handle_response(response)
+        assert result == {"orderId": "ORDER-123"}
+
+    def test_204_empty_body_returns_empty_dict(self) -> None:
+        response = _make_httpx_response(204, empty_body=True)
+        result = self.client._handle_response(response)
+        assert result == {}
+
     def test_401_raises_authentication_error(self) -> None:
         response = _make_httpx_response(401, data={"message": "Unauthorized"})
         with pytest.raises(AuthenticationError) as exc_info:
@@ -292,7 +302,7 @@ class TestAsyncApiClientHttpMethods:
 
     @pytest.mark.asyncio
     async def test_delete_returns_data(self) -> None:
-        delete_response = _make_httpx_response(200, data={})
+        delete_response = _make_httpx_response(204, empty_body=True)
         self.client._client.request = AsyncMock(return_value=delete_response)
         result = await self.client.delete("/endpoint")
         assert result == {}

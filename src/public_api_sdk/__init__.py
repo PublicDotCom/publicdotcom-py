@@ -81,7 +81,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.10"
+__version__ = "0.1.11"
 
 __all__ = [
     # Auth

@@ -123,6 +123,16 @@ class TestApiClientHandleResponse:
         result = self.client._handle_response(response)
         assert result == {}
 
+    def test_201_returns_created_resource_data(self) -> None:
+        response = _make_response(201, data={"orderId": "ORDER-123"})
+        result = self.client._handle_response(response)
+        assert result == {"orderId": "ORDER-123"}
+
+    def test_204_empty_body_returns_empty_dict(self) -> None:
+        response = _make_response(204, empty_body=True)
+        result = self.client._handle_response(response)
+        assert result == {}
+
     def test_401_raises_authentication_error(self) -> None:
         response = _make_response(401, data={"message": "Unauthorized"})
         with pytest.raises(AuthenticationError) as exc_info:
@@ -252,10 +262,11 @@ class TestApiClientHttpMethods:
         assert call_kwargs["json"] == payload
 
     def test_delete_calls_session_delete(self) -> None:
-        delete_response = _make_response(200, data={})
+        delete_response = _make_response(204, empty_body=True)
         self.client.session.delete = Mock(return_value=delete_response)
-        self.client.delete("/endpoint")
+        result = self.client.delete("/endpoint")
         self.client.session.delete.assert_called_once()
+        assert result == {}
 
     def test_delete_builds_correct_url(self) -> None:
         delete_response = _make_response(200, data={})
