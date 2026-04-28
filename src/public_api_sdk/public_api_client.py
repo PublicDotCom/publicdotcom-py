@@ -38,7 +38,13 @@ from .models import (
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
-from .short_order import _build_short_order_request, _build_short_preflight_request
+from .short_order import (
+    FlattenAndShortResult,
+    _build_flatten_long_order_request,
+    _build_short_order_request,
+    _build_short_preflight_request,
+    _get_equity_position_quantity,
+)
 from .strategy_preflight import (
     StrategyPreflight,
     _SpreadKind,
@@ -797,6 +803,92 @@ class PublicApiClient:
             order_id=order_id,
         )
         return self.place_order(request, account_id)
+
+    def flatten_and_go_short(
+        self,
+        symbol: str,
+        short_quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        flatten_order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        flatten_timeout: Optional[float] = 60.0,
+        polling_interval: float = 1.0,
+        account_id: Optional[str] = None,
+    ) -> FlattenAndShortResult:
+        """Flatten an existing long equity position, then place a short order.
+
+        Experimental: use with caution. This is a two-order workflow, not an
+        atomic exchange operation, and market conditions may change between
+        the flatten fill and the short entry.
+
+        If the account is long ``symbol``, this places a market SELL/CLOSE
+        order for the long quantity, waits for it to fill, re-fetches the
+        portfolio to confirm no long position remains, and only then places
+        the short-sale order via :meth:`place_short_order`.
+
+        If the account is already flat or short, no flatten order is placed and
+        the short order is submitted immediately.
+        """
+        account_id = self.__get_account_id(account_id)
+        normalized_symbol = symbol.strip().upper()
+
+        portfolio = self.get_portfolio(account_id=account_id)
+        initial_quantity = _get_equity_position_quantity(
+            portfolio, normalized_symbol
+        )
+
+        flatten_order: Optional[NewOrder] = None
+        flatten_filled_order: Optional[Order] = None
+
+        if initial_quantity > 0:
+            flatten_request = _build_flatten_long_order_request(
+                symbol=normalized_symbol,
+                quantity=initial_quantity,
+                equity_market_session=equity_market_session,
+                order_id=flatten_order_id,
+            )
+            flatten_order = self.place_order(flatten_request, account_id=account_id)
+            flatten_filled_order = flatten_order.wait_for_fill(
+                timeout=flatten_timeout,
+                polling_interval=polling_interval,
+            )
+
+            refreshed_portfolio = self.get_portfolio(account_id=account_id)
+            remaining_quantity = _get_equity_position_quantity(
+                refreshed_portfolio, normalized_symbol
+            )
+            if remaining_quantity > 0:
+                raise RuntimeError(
+                    f"Long position in {normalized_symbol} remains after flatten "
+                    f"order {flatten_order.order_id}: quantity={remaining_quantity}. "
+                    "Short order was not placed."
+                )
+
+        short_order = self.place_short_order(
+            symbol=normalized_symbol,
+            quantity=short_quantity,
+            order_id=order_id,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            account_id=account_id,
+        )
+
+        return FlattenAndShortResult(
+            initial_position_quantity=initial_quantity,
+            flatten_order=flatten_order,
+            flatten_filled_order=flatten_filled_order,
+            short_order=short_order,
+        )
 
     def place_order(
         self,

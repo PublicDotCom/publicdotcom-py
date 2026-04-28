@@ -5,6 +5,7 @@ real HTTP calls are made.
 """
 
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
@@ -434,6 +435,119 @@ class TestPlaceShortOrder:
                 limit_price=Decimal("150.00"),
             )
         self.client.place_order.assert_not_called()
+
+
+class TestFlattenAndGoShort:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.flatten_order = Mock()
+        self.flatten_order.order_id = "FLATTEN-123"
+        self.filled_flatten = Mock()
+        self.flatten_order.wait_for_fill = AsyncMock(return_value=self.filled_flatten)
+        self.short_order = Mock(spec=AsyncNewOrder)
+        self.client.place_order = AsyncMock(return_value=self.flatten_order)
+        self.client.place_short_order = AsyncMock(return_value=self.short_order)
+
+    def _portfolio(self, quantity: Decimal) -> SimpleNamespace:
+        positions = []
+        if quantity != 0:
+            positions.append(
+                SimpleNamespace(
+                    instrument=SimpleNamespace(
+                        symbol="AAPL",
+                        type=InstrumentType.EQUITY,
+                    ),
+                    quantity=quantity,
+                )
+            )
+        return SimpleNamespace(positions=positions)
+
+    @pytest.mark.asyncio
+    async def test_flattens_long_position_waits_then_places_short(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            side_effect=[
+                self._portfolio(Decimal("100")),
+                self._portfolio(Decimal("0")),
+            ]
+        )
+
+        result = await self.client.flatten_and_go_short(
+            symbol="aapl",
+            short_quantity=Decimal("200"),
+            order_id=_VALID_UUID,
+            flatten_order_id="85718cfb-32f4-4c57-976b-6060b94bbaf9",
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            flatten_timeout=12,
+            polling_interval=0.5,
+            account_id="ACC456",
+        )
+
+        flatten_request = self.client.place_order.call_args[0][0]
+        flatten_account_id = self.client.place_order.call_args[1]["account_id"]
+        assert flatten_request.instrument.symbol == "AAPL"
+        assert flatten_request.order_side == OrderSide.SELL
+        assert flatten_request.open_close_indicator == OpenCloseIndicator.CLOSE
+        assert flatten_request.order_type == OrderType.MARKET
+        assert flatten_request.quantity == Decimal("100")
+        assert flatten_account_id == "ACC456"
+        self.flatten_order.wait_for_fill.assert_called_once_with(
+            timeout=12,
+            polling_interval=0.5,
+        )
+        self.client.place_short_order.assert_called_once_with(
+            symbol="AAPL",
+            quantity=Decimal("200"),
+            order_id=_VALID_UUID,
+            order_type=OrderType.LIMIT,
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+            limit_price=Decimal("150.00"),
+            stop_price=None,
+            equity_market_session=EquityMarketSession.CORE,
+            account_id="ACC456",
+        )
+        assert result.initial_position_quantity == Decimal("100")
+        assert result.flatten_order is self.flatten_order
+        assert result.flatten_filled_order is self.filled_flatten
+        assert result.short_order is self.short_order
+
+    @pytest.mark.asyncio
+    async def test_flat_position_places_short_without_flatten_order(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            return_value=self._portfolio(Decimal("0"))
+        )
+
+        result = await self.client.flatten_and_go_short(
+            symbol="AAPL",
+            short_quantity=Decimal("25"),
+        )
+
+        self.client.place_order.assert_not_called()
+        self.client.place_short_order.assert_called_once()
+        assert result.initial_position_quantity == Decimal("0")
+        assert result.flatten_order is None
+        assert result.flatten_filled_order is None
+        assert result.short_order is self.short_order
+
+    @pytest.mark.asyncio
+    async def test_remaining_long_position_stops_before_short_order(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            side_effect=[
+                self._portfolio(Decimal("100")),
+                self._portfolio(Decimal("5")),
+            ]
+        )
+
+        with pytest.raises(RuntimeError, match="Long position in AAPL remains"):
+            await self.client.flatten_and_go_short(
+                symbol="AAPL",
+                short_quantity=Decimal("25"),
+            )
+
+        self.flatten_order.wait_for_fill.assert_called_once()
+        self.client.place_short_order.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

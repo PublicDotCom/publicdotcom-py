@@ -764,6 +764,30 @@ print(f"Short order placed: {short_order.order_id}")
 
 Pass `order_id` when you want explicit idempotency control; otherwise the SDK generates a UUIDv4. The same helper exists on `AsyncPublicApiClient`; just `await` it.
 
+##### Flatten and Go Short
+
+> **Experimental:** Use this helper with caution. It sends two separate orders
+> and is not an atomic exchange operation. Market conditions may change between
+> the flatten fill and the short entry.
+
+If you may already be long a symbol, use `flatten_and_go_short()` to avoid sending one oversized sell order. The helper places a market sell-to-close order for the current long quantity, waits for that flatten order to fill, re-fetches the portfolio to confirm no long position remains, and only then places the short order.
+
+```python
+result = client.flatten_and_go_short(
+    symbol="AAPL",
+    short_quantity=Decimal("200"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    flatten_timeout=60,
+)
+
+if result.flatten_order:
+    print(f"Flattened long position with order: {result.flatten_order.order_id}")
+print(f"Short order placed: {result.short_order.order_id}")
+```
+
+This is a two-order workflow, not an atomic exchange operation. If the flatten order does not fill before `flatten_timeout`, or if the refreshed portfolio still shows a long position after the fill, the short order is not placed. The same helper exists on `AsyncPublicApiClient`; just `await` it.
+
 ##### Place Multi-Leg Order
 
 Submit a multi-leg option strategy order.

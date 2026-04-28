@@ -77,6 +77,7 @@ from .async_strategy_preflight import AsyncStrategyPreflight
 from .async_subscription_manager import AsyncPriceSubscriptionManager
 from .price_stream import PriceStream
 from .public_api_client import PublicApiClient, PublicApiClientConfiguration
+from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
@@ -162,12 +163,14 @@ __all__ = [
     "PriceSubscriptionManager",
     "PriceStream",
     "StrategyPreflight",
+    "FlattenAndShortResult",
     # Async client
     "AsyncPublicApiClient",
     "AsyncPublicApiClientConfiguration",
     "AsyncPriceSubscriptionManager",
     "AsyncPriceStream",
     "AsyncStrategyPreflight",
+    "AsyncFlattenAndShortResult",
     # Exceptions
     "APIError",
     "AuthenticationError",

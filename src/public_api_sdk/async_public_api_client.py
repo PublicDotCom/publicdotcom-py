@@ -46,7 +46,13 @@ from .models import (
     TimeInForce,
 )
 from .models.async_new_order import AsyncNewOrder
-from .short_order import _build_short_order_request, _build_short_preflight_request
+from .short_order import (
+    AsyncFlattenAndShortResult,
+    _build_flatten_long_order_request,
+    _build_short_order_request,
+    _build_short_preflight_request,
+    _get_equity_position_quantity,
+)
 
 if TYPE_CHECKING:
     from .auth_config import AsyncAuthConfig
@@ -708,6 +714,86 @@ class AsyncPublicApiClient:
             order_id=order_id,
         )
         return await self.place_order(request, account_id)
+
+    async def flatten_and_go_short(
+        self,
+        symbol: str,
+        short_quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        flatten_order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        flatten_timeout: Optional[float] = 60.0,
+        polling_interval: float = 1.0,
+        account_id: Optional[str] = None,
+    ) -> AsyncFlattenAndShortResult:
+        """Flatten an existing long equity position, then place a short order.
+
+        Experimental: use with caution. This is a two-order workflow, not an
+        atomic exchange operation, and market conditions may change between
+        the flatten fill and the short entry.
+        """
+        account_id = self._get_account_id(account_id)
+        normalized_symbol = symbol.strip().upper()
+
+        portfolio = await self.get_portfolio(account_id=account_id)
+        initial_quantity = _get_equity_position_quantity(
+            portfolio, normalized_symbol
+        )
+
+        flatten_order: Optional[AsyncNewOrder] = None
+        flatten_filled_order: Optional[Order] = None
+
+        if initial_quantity > 0:
+            flatten_request = _build_flatten_long_order_request(
+                symbol=normalized_symbol,
+                quantity=initial_quantity,
+                equity_market_session=equity_market_session,
+                order_id=flatten_order_id,
+            )
+            flatten_order = await self.place_order(
+                flatten_request, account_id=account_id
+            )
+            flatten_filled_order = await flatten_order.wait_for_fill(
+                timeout=flatten_timeout,
+                polling_interval=polling_interval,
+            )
+
+            refreshed_portfolio = await self.get_portfolio(account_id=account_id)
+            remaining_quantity = _get_equity_position_quantity(
+                refreshed_portfolio, normalized_symbol
+            )
+            if remaining_quantity > 0:
+                raise RuntimeError(
+                    f"Long position in {normalized_symbol} remains after flatten "
+                    f"order {flatten_order.order_id}: quantity={remaining_quantity}. "
+                    "Short order was not placed."
+                )
+
+        short_order = await self.place_short_order(
+            symbol=normalized_symbol,
+            quantity=short_quantity,
+            order_id=order_id,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            account_id=account_id,
+        )
+
+        return AsyncFlattenAndShortResult(
+            initial_position_quantity=initial_quantity,
+            flatten_order=flatten_order,
+            flatten_filled_order=flatten_filled_order,
+            short_order=short_order,
+        )
 
     # ------------------------------------------------------------------ #
     # Order placement                                                      #
