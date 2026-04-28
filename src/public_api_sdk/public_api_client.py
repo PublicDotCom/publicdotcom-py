@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from .api_client import ApiClient
@@ -6,6 +8,7 @@ from .auth_manager import AuthManager
 from .models import (
     AccountsResponse,
     CancelAndReplaceRequest,
+    EquityMarketSession,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -14,27 +17,40 @@ from .models import (
     InstrumentsResponse,
     InstrumentType,
     MultilegOrderRequest,
-    MultilegOrderResult,
     NewOrder,
     OptionChainRequest,
     OptionChainResponse,
     OptionExpirationsRequest,
     OptionExpirationsResponse,
-    OptionGreeks,
+    OptionGreeksResponse,
     Order,
     OrderInstrument,
     OrderRequest,
-    OrderResponse,
+    OrderResult,
+    OrderType,
     Portfolio,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
     PreflightRequest,
     PreflightResponse,
     Quote,
+    TimeInForce,
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
-from .strategy_preflight import StrategyPreflight
+from .short_order import (
+    FlattenAndShortResult,
+    _build_flatten_long_order_request,
+    _build_short_order_request,
+    _build_short_preflight_request,
+    _get_equity_position_quantity,
+)
+from .strategy_preflight import (
+    StrategyPreflight,
+    _SpreadKind,
+    _build_two_leg_spread_order_request,
+    _build_two_leg_spread_request,
+)
 from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
@@ -308,7 +324,7 @@ class PublicApiClient:
         self,
         osi_symbol: str,
         account_id: Optional[str] = None,
-    ) -> OptionGreeks:
+    ) -> OptionGreeksResponse:
         """
         Get option greeks for a single option symbol (OSI-normalized format)
 
@@ -363,6 +379,39 @@ class PublicApiClient:
         )
         return PreflightResponse(**response)
 
+    def preflight_short_order(
+        self,
+        symbol: str,
+        quantity: Decimal,
+        *,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightResponse:
+        """Preflight a quantity-based equity short-sale order.
+
+        The API represents short-sale intent as ``SELL`` plus
+        ``openCloseIndicator=OPEN``. This helper always sends that intent and
+        does not expose notional ``amount`` orders.
+        """
+        request = _build_short_preflight_request(
+            symbol=symbol,
+            quantity=quantity,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            validate_order=validate_order,
+        )
+        return self.perform_preflight_calculation(request, account_id)
+
     def perform_multi_leg_preflight_calculation(
         self,
         preflight_request: PreflightMultiLegRequest,
@@ -404,6 +453,443 @@ class PublicApiClient:
         )
         return PreflightMultiLegResponse(**response)
 
+    def preflight_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Call Spread (CALL credit spread).
+
+        Sells a lower-strike call and buys a higher-strike call as protection.
+        Profits if the underlying stays *below* the sell strike at expiry. Net
+        cash flow at entry is a credit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the lower-strike CALL to sell
+                (e.g. ``"AAPL251219C00190000"``).
+            buy_contract_osi: OSI symbol of the higher-strike CALL to buy.
+            quantity: Number of spread contracts.
+            limit_price: Minimum net credit to accept, as a positive value
+                (e.g. ``Decimal("2.50")`` for a $2.50 per-share credit). The
+                SDK negates this for the API automatically.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, runs a hypothetical "what-if"
+                preflight that doesn't check the order against current account
+                state. Server defaults to ``True``.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Returns:
+            ``PreflightMultiLegResponse`` with estimated credit, commission,
+            and buying-power impact.
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a CALL, or
+                ``sell_strike >= buy_strike``.
+            ValidationError: If the API rejects the request (HTTP 400).
+            APIError: For any other API error.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Call Spread (CALL debit spread).
+
+        Buys a lower-strike call and sells a higher-strike call to offset
+        the cost. Profits if the underlying rises *above* the sell strike
+        at expiry. Net cash flow at entry is a debit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the higher-strike CALL to sell.
+            buy_contract_osi: OSI symbol of the lower-strike CALL to buy.
+            quantity: Number of spread contracts.
+            limit_price: Maximum net debit to pay, as a positive value
+                (e.g. ``Decimal("3.00")`` for a $3.00 per-share debit).
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Returns:
+            ``PreflightMultiLegResponse`` with estimated cost and impact.
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a CALL, or
+                ``buy_strike >= sell_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Put Spread (PUT credit spread).
+
+        Sells a higher-strike put and buys a lower-strike put as protection.
+        Profits if the underlying stays *above* the sell strike at expiry.
+        Net cash flow at entry is a credit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the higher-strike PUT to sell.
+            buy_contract_osi: OSI symbol of the lower-strike PUT to buy.
+            quantity: Number of spread contracts.
+            limit_price: Minimum net credit to accept, as a positive value.
+                The SDK negates this for the API automatically.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a PUT, or
+                ``sell_strike <= buy_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def preflight_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Put Spread (PUT debit spread).
+
+        Buys a higher-strike put and sells a lower-strike put to offset
+        the cost. Profits if the underlying falls *below* the sell strike
+        at expiry. Net cash flow at entry is a debit.
+
+        Args:
+            sell_contract_osi: OSI symbol of the lower-strike PUT to sell.
+            buy_contract_osi: OSI symbol of the higher-strike PUT to buy.
+            quantity: Number of spread contracts.
+            limit_price: Maximum net debit to pay, as a positive value.
+            time_in_force: ``DAY`` (default) or ``GTD``.
+            expiration_time: Required when ``time_in_force`` is ``GTD``.
+            validate_order: If ``False``, skips account-state validation.
+            account_id: Account ID (optional when ``default_account_number``
+                is set on the client).
+
+        Raises:
+            ValueError: If either OSI fails to parse, the legs don't share an
+                underlying or expiration, either leg is not a PUT, or
+                ``buy_strike <= sell_strike``.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    def place_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Place a Bear Call Spread (CALL credit spread).
+
+        This submits a live multi-leg order. Pass ``order_id`` to control the
+        idempotency key; otherwise the SDK generates a UUIDv4 automatically.
+        ``limit_price`` is the minimum credit to accept as a positive value.
+        """
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return self.place_multileg_order(request, account_id)
+
+    def place_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Place a Bull Call Spread (CALL debit spread).
+
+        This submits a live multi-leg order. ``limit_price`` is the maximum
+        debit to pay as a positive value.
+        """
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return self.place_multileg_order(request, account_id)
+
+    def place_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Place a Bull Put Spread (PUT credit spread).
+
+        This submits a live multi-leg order. ``limit_price`` is the minimum
+        credit to accept as a positive value.
+        """
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return self.place_multileg_order(request, account_id)
+
+    def place_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Place a Bear Put Spread (PUT debit spread).
+
+        This submits a live multi-leg order. ``limit_price`` is the maximum
+        debit to pay as a positive value.
+        """
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return self.place_multileg_order(request, account_id)
+
+    def place_short_order(
+        self,
+        symbol: str,
+        quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Place a quantity-based equity short-sale order.
+
+        The API represents short-sale intent as ``SELL`` plus
+        ``openCloseIndicator=OPEN``. This helper always sends that intent and
+        does not expose notional ``amount`` orders. Pass ``order_id`` to
+        control the idempotency key; otherwise the SDK generates a UUIDv4.
+        """
+        request = _build_short_order_request(
+            symbol=symbol,
+            quantity=quantity,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            order_id=order_id,
+        )
+        return self.place_order(request, account_id)
+
+    def flatten_and_go_short(
+        self,
+        symbol: str,
+        short_quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        flatten_order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        flatten_timeout: Optional[float] = 60.0,
+        polling_interval: float = 1.0,
+        account_id: Optional[str] = None,
+    ) -> FlattenAndShortResult:
+        """Flatten an existing long equity position, then place a short order.
+
+        Experimental: use with caution. This is a two-order workflow, not an
+        atomic exchange operation, and market conditions may change between
+        the flatten fill and the short entry.
+
+        If the account is long ``symbol``, this places a market SELL/CLOSE
+        order for the long quantity, waits for it to fill, re-fetches the
+        portfolio to confirm no long position remains, and only then places
+        the short-sale order via :meth:`place_short_order`.
+
+        If the account is already flat or short, no flatten order is placed and
+        the short order is submitted immediately.
+        """
+        account_id = self.__get_account_id(account_id)
+        normalized_symbol = symbol.strip().upper()
+
+        portfolio = self.get_portfolio(account_id=account_id)
+        initial_quantity = _get_equity_position_quantity(
+            portfolio, normalized_symbol
+        )
+
+        flatten_order: Optional[NewOrder] = None
+        flatten_filled_order: Optional[Order] = None
+
+        if initial_quantity > 0:
+            flatten_request = _build_flatten_long_order_request(
+                symbol=normalized_symbol,
+                quantity=initial_quantity,
+                equity_market_session=equity_market_session,
+                order_id=flatten_order_id,
+            )
+            flatten_order = self.place_order(flatten_request, account_id=account_id)
+            flatten_filled_order = flatten_order.wait_for_fill(
+                timeout=flatten_timeout,
+                polling_interval=polling_interval,
+            )
+
+            refreshed_portfolio = self.get_portfolio(account_id=account_id)
+            remaining_quantity = _get_equity_position_quantity(
+                refreshed_portfolio, normalized_symbol
+            )
+            if remaining_quantity > 0:
+                raise RuntimeError(
+                    f"Long position in {normalized_symbol} remains after flatten "
+                    f"order {flatten_order.order_id}: quantity={remaining_quantity}. "
+                    "Short order was not placed."
+                )
+
+        short_order = self.place_short_order(
+            symbol=normalized_symbol,
+            quantity=short_quantity,
+            order_id=order_id,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            account_id=account_id,
+        )
+
+        return FlattenAndShortResult(
+            initial_position_quantity=initial_quantity,
+            flatten_order=flatten_order,
+            flatten_filled_order=flatten_filled_order,
+            short_order=short_order,
+        )
+
     def place_order(
         self,
         order_request: OrderRequest,
@@ -424,7 +910,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
 
         return NewOrder(
             order_id=order_response.order_id,
@@ -457,7 +943,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order/multileg",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_result = MultilegOrderResult(**response)
+        order_result = OrderResult(**response)
 
         return NewOrder(
             order_id=order_result.order_id,
@@ -532,7 +1018,7 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
         return NewOrder(
             order_id=order_response.order_id,
             account_id=account_id,

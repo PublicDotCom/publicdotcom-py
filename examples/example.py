@@ -12,7 +12,7 @@ from public_api_sdk import (
     HistoryRequest,
     InstrumentsRequest,
     InstrumentType,
-    Trading,
+    TradingPermission,
     PublicApiClient,
     PublicApiClientConfiguration,
     OrderExpirationRequest,
@@ -61,7 +61,7 @@ def main() -> None:
         instruments = public_api_client.get_all_instruments(
             InstrumentsRequest(
                 type_filter=[InstrumentType.EQUITY],
-                trading_filter=[Trading.BUY_AND_SELL],
+                trading_filter=[TradingPermission.BUY_AND_SELL],
                 fractional_trading_filter=None,
                 option_trading_filter=None,
                 option_spread_trading_filter=None,
@@ -108,6 +108,17 @@ def main() -> None:
             preflight_request, account_id=account_id
         )
         print(f"Preflight response: {preflight_response}\n\n")
+
+        print("Performing short-sale preflight calculation...")
+        short_preflight = public_api_client.preflight_short_order(
+            symbol="AAPL",
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("226.78"),
+            equity_market_session=EquityMarketSession.CORE,
+            account_id=account_id,
+        )
+        print(f"Short preflight response: {short_preflight}\n\n")
 
         # place a equity order
         if DRY_RUN:

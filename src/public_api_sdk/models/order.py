@@ -224,13 +224,26 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description=(
+            "Indicates OPEN/CLOSE intent for options and equity short-sale "
+            "orders."
+        ),
     )
     equity_market_session: Optional[EquityMarketSession] = Field(
         None,
         validation_alias=AliasChoices("equity_market_session", "equityMarketSession"),
         serialization_alias="equityMarketSession",
         description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED)",
+    )
+    validate_order: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("validate_order", "validateOrder"),
+        serialization_alias="validateOrder",
+        description=(
+            "If true, the order is validated against the current account state"
+            " (buying power, permissions, etc.). Defaults to true on the server."
+            " Set to false for hypothetical 'what-if' calculations."
+        ),
     )
 
     @field_serializer("order_side")
@@ -279,10 +292,20 @@ class OptionType(str, Enum):
 
 
 class OptionDetails(BaseModel):
+    """Option-specific details on a preflight response.
+
+    Used in both single-leg `PreflightResponse` (top-level field) and per-leg
+    inside `PreflightLegResponse`. Maps to the spec's `GatewayOptionDetails`.
+
+    `option_expire_date` is the spec's `date` format (YYYY-MM-DD) — kept as a
+    string to avoid implicit-midnight-UTC conversion that a `datetime` field
+    would introduce.
+    """
+
     base_symbol: str = Field(..., alias="baseSymbol")
     type: OptionType = Field(..., alias="type")
     strike_price: Decimal = Field(..., alias="strikePrice")
-    option_expire_date: datetime = Field(..., alias="optionExpireDate")
+    option_expire_date: str = Field(..., alias="optionExpireDate")
 
 
 class OptionRebate(BaseModel):
@@ -309,10 +332,82 @@ class MarginImpact(BaseModel):
     )
 
 
-class PriceIncrement(BaseModel):
+class OrderPriceIncrement(BaseModel):
+    """Price-increment information returned with preflight responses.
+
+    Includes the current increment (which the order must respect) plus the
+    below-$3 and above-$3 increments that apply to the underlying option.
+
+    Distinct from `OptionPriceIncrement` on `Instrument`, which has only the
+    below-$3 / above-$3 fields and no current increment.
+    """
+
     increment_below_3: Optional[Decimal] = Field(None, alias="incrementBelow3")
     increment_above_3: Optional[Decimal] = Field(None, alias="incrementAbove3")
     current_increment: Optional[Decimal] = Field(None, alias="currentIncrement")
+
+
+# Backwards-compatible alias.
+PriceIncrement = OrderPriceIncrement
+"""Deprecated alias for `OrderPriceIncrement`. Will be removed in a future release."""
+
+
+class ShortingAvailability(str, Enum):
+    NOT_SHORTABLE = "NOT_SHORTABLE"
+    EASY_TO_BORROW = "EASY_TO_BORROW"
+    HARD_TO_BORROW = "HARD_TO_BORROW"
+
+
+class UptickRule(str, Enum):
+    """Whether the uptick rule (SSR, Regulation SHO Rule 201) is active.
+
+    Triggered when price has dropped at least 10% from the previous close.
+    """
+
+    TRIGGERED = "TRIGGERED"
+    NOT_TRIGGERED = "NOT_TRIGGERED"
+
+
+class ShortSelling(BaseModel):
+    """Short-selling information for an instrument in a preflight response."""
+
+    availability: ShortingAvailability = Field(
+        ...,
+        description="Short-selling availability for this instrument.",
+    )
+    uptick_rule: UptickRule = Field(
+        ...,
+        alias="uptickRule",
+        description=(
+            "Uptick rule (SSR) — triggered for equities when the price today or"
+            " yesterday has dropped at least 10 percent since the previous"
+            " day's closing price."
+        ),
+    )
+    hard_to_borrow_percentage_rate: Optional[Decimal] = Field(
+        None,
+        alias="hardToBorrowPercentageRate",
+        description="Hard-to-borrow rate as a percentage value.",
+    )
+    initial_margin_requirement_percentage: Optional[Decimal] = Field(
+        None,
+        alias="initialMarginRequirementPercentage",
+        description="Initial margin requirement as a percentage value.",
+    )
+    maintenance_margin_requirement_percentage: Optional[Decimal] = Field(
+        None,
+        alias="maintenanceMarginRequirementPercentage",
+        description="Maintenance margin requirement as a percentage value.",
+    )
+    max_quantity_for_locate: Optional[int] = Field(
+        None,
+        alias="maxQuantityForLocate",
+        description=(
+            "Maximum quantity that can be requested to locate for all"
+            " hard-to-borrow stocks. The actual number available may be lower"
+            " for specific stocks."
+        ),
+    )
 
 
 class PreflightResponse(BaseModel):
@@ -324,6 +419,13 @@ class PreflightResponse(BaseModel):
     regulatory_fees: Optional[RegulatoryFees] = Field(None, alias="regulatoryFees")
     estimated_index_option_fee: Optional[Decimal] = Field(
         None, alias="estimatedIndexOptionFee"
+    )
+    estimated_execution_fee: Optional[Decimal] = Field(
+        None,
+        alias="estimatedExecutionFee",
+        description=(
+            "Estimated gateway fee when using specific venues for buying stocks."
+        ),
     )
     order_value: Decimal = Field(..., alias="orderValue")
     estimated_quantity: Optional[Decimal] = Field(None, alias="estimatedQuantity")
@@ -340,7 +442,12 @@ class PreflightResponse(BaseModel):
         None, alias="marginRequirement"
     )
     margin_impact: Optional[MarginImpact] = Field(None, alias="marginImpact")
-    price_increment: Optional[PriceIncrement] = Field(None, alias="priceIncrement")
+    short_selling: Optional[ShortSelling] = Field(
+        None,
+        alias="shortSelling",
+        description="Short-selling information for the given instrument.",
+    )
+    price_increment: Optional[OrderPriceIncrement] = Field(None, alias="priceIncrement")
 
 
 class OrderRequest(OrderValidationMixin, BaseModel):
@@ -416,7 +523,10 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description=(
+            "Indicates OPEN/CLOSE intent for options and equity short-sale "
+            "orders."
+        ),
     )
     equity_market_session: Optional[EquityMarketSession] = Field(
         None,
@@ -456,8 +566,20 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         return value.value if value else None
 
 
-class OrderResponse(BaseModel):
+class OrderResult(BaseModel):
+    """Result of placing or replacing an order — wraps the new order_id.
+
+    Maps to the spec's `ApiOrderResult`, which is the response schema for
+    `POST /order`, `PUT /order`, and `POST /order/multileg`.
+    """
+
     order_id: str = Field(..., alias="orderId")
+
+
+# Backwards-compatible aliases — both names previously existed and were
+# functionally identical to ApiOrderResult.
+OrderResponse = OrderResult
+"""Deprecated alias for `OrderResult`. Will be removed in a future release."""
 
 
 class CancelAndReplaceRequest(BaseModel):

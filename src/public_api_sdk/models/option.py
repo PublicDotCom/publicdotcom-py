@@ -13,18 +13,26 @@ from pydantic import (
 )
 
 from .order import (
+    LegInstrument,
+    LegInstrumentType,
     OpenCloseIndicator,
+    OptionDetails,
     OrderExpirationRequest,
     OrderInstrument,
+    OrderPriceIncrement,
+    OrderResult,
     OrderSide,
     OrderType,
     RegulatoryFees,
     MarginRequirement,
     MarginImpact,
-    PriceIncrement,
     OptionType,
 )
-from .quote import Quote
+from .quote import GreekValues, Quote
+
+# `LegInstrument`, `LegInstrumentType`, `OptionDetails`, and `OrderResult` are
+# imported here so they remain available via `public_api_sdk.models.option`
+# for backwards compatibility. Their canonical home is `order.py`.
 
 
 class MultilegValidationMixin:
@@ -107,16 +115,6 @@ class OptionChainResponse(BaseModel):
     )
 
 
-class LegInstrumentType(str, Enum):
-    EQUITY = "EQUITY"
-    OPTION = "OPTION"
-
-
-class LegInstrument(BaseModel):
-    symbol: str = Field(...)
-    type: LegInstrumentType = Field(...)
-
-
 class OrderLegRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -183,8 +181,8 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         description="The order type. Only LIMIT orders are allowed",
     )
     expiration: OrderExpirationRequest = Field(...)
-    quantity: Optional[int] = Field(
-        None,
+    quantity: int = Field(
+        ...,
         description="The quantity of the spread. Must be greater than 0",
     )
     limit_price: Decimal = Field(
@@ -197,6 +195,16 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         ...,
         description="From 2-6 legs. There can be at most 1 equity leg",
     )
+    validate_order: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("validate_order", "validateOrder"),
+        serialization_alias="validateOrder",
+        description=(
+            "If true, the order is validated against the current account state."
+            " Defaults to true on the server. Set to false for hypothetical"
+            " 'what-if' calculations."
+        ),
+    )
 
     @field_validator("order_type")
     @classmethod
@@ -205,8 +213,8 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
 
     @field_validator("quantity")
     @classmethod
-    def validate_quantity(cls, v: Optional[int]) -> Optional[int]:
-        if v is not None and v <= 0:
+    def validate_quantity(cls, v: int) -> int:
+        if v <= 0:
             raise ValueError("`quantity` must be greater than 0")
         return v
 
@@ -220,23 +228,12 @@ class PreflightMultiLegRequest(MultilegValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
-        return str(value) if value is not None else None
+    def serialize_int(self, value: int) -> str:
+        return str(value)
 
     @field_serializer("limit_price")
-    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
-
-
-class OptionDetails(BaseModel):
-    base_symbol: str = Field(..., alias="baseSymbol")
-    type: OptionType = Field(...)
-    strike_price: Decimal = Field(..., alias="strikePrice")
-    option_expire_date: str = Field(..., alias="optionExpireDate")
+    def serialize_decimal(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 class PreflightLegResponse(BaseModel):
@@ -270,7 +267,7 @@ class PreflightMultiLegResponse(BaseModel):
         None, alias="marginRequirement"
     )
     margin_impact: Optional[MarginImpact] = Field(None, alias="marginImpact")
-    price_increment: Optional[PriceIncrement] = Field(None, alias="priceIncrement")
+    price_increment: Optional[OrderPriceIncrement] = Field(None, alias="priceIncrement")
 
 
 class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
@@ -294,8 +291,8 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
     type: OrderType = Field(
         ..., description="The order type. Only LIMIT order are allowed"
     )
-    limit_price: Optional[Decimal] = Field(
-        None,
+    limit_price: Decimal = Field(
+        ...,
         validation_alias=AliasChoices("limit_price", "limitPrice"),
         serialization_alias="limitPrice",
         description=(
@@ -341,92 +338,50 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
         return value.value
 
     @field_serializer("quantity")
-    def serialize_int(self, value: Optional[int]) -> Optional[str]:
-        return str(value) if value is not None else None
+    def serialize_int(self, value: int) -> str:
+        return str(value)
 
     @field_serializer("limit_price")
-    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
+    def serialize_decimal(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-class MultilegOrderResult(BaseModel):
-    order_id: str = Field(..., alias="orderId")
+# Backwards-compatible alias — `MultilegOrderResult` is identical in shape to
+# the spec's ApiOrderResult, which all order-placement endpoints share.
+MultilegOrderResult = OrderResult
+"""Deprecated alias for `OrderResult`. Will be removed in a future release."""
 
 
-class GreekValues(BaseModel):
-    """The actual Greek values for an option"""
-    delta: Decimal = Field(
-        ...,
-        description=(
-            "Delta is the theoretical estimate of how much an option's value "
-            "may change given a $1 move UP or DOWN in the underlying security. "
-            "The Delta values range from -1 to +1, with 0 representing an "
-            "option where the premium barely moves relative to price changes "
-            "in the underlying stock."
-        ),
-    )
-    gamma: Decimal = Field(
-        ...,
-        description=(
-            "Gamma represents the rate of change between an option's Delta and "
-            "the underlying asset's price. Higher Gamma values indicate that "
-            "the Delta could change dramatically with even very small price "
-            "changes in the underlying stock or fund."
-        ),
-    )
-    theta: Decimal = Field(
-        ...,
-        description=(
-            "Theta represents the rate of change between the option price and "
-            "time, or time sensitivity—sometimes known as an option's time "
-            "decay. Theta indicates the amount an option's price would "
-            "decrease as the time to expiration decreases, all else equal."
-        ),
-    )
-    vega: Decimal = Field(
-        ...,
-        description=(
-            "Vega measures the amount of increase or decrease in an option "
-            "premium based on a 1% change in implied volatility."
-        ),
-    )
-    rho: Decimal = Field(
-        ...,
-        description=(
-            "Rho represents the rate of change between an option's value and "
-            "a 1% change in the interest rate. This measures sensitivity to "
-            "the interest rate."
-        ),
-    )
-    implied_volatility: Decimal = Field(
-        ...,
-        alias="impliedVolatility",
-        description=(
-            "Implied volatility (IV) is a theoretical forecast of how volatile "
-            "an underlying stock is expected to be in the future."
-        ),
-    )
+class OptionGreeksResponse(BaseModel):
+    """Per-symbol greeks entry returned in `GreeksResponse.greeks`.
 
+    Maps to the spec's `GreekResponse` (symbol + nullable greeks). Distinct
+    from `GreekValues`, which is just the numerical greek values
+    (delta/gamma/theta/vega/rho/impliedVolatility) — that's the spec's own
+    `OptionGreeks` schema, named differently here to avoid the collision.
 
-class OptionGreeks(BaseModel):
-    """Greeks for a single option symbol"""
+    `greeks` is optional — the API may omit it for symbols that have no
+    available greek data (e.g. expired or illiquid contracts).
+    """
+
     symbol: str = Field(
         ...,
-        description="The OSI-normalized option symbol"
+        description="The OSI-normalized option symbol",
     )
-    greeks: GreekValues = Field(
-        ...,
-        description="The Greek values for this option"
+    greeks: Optional[GreekValues] = Field(
+        None,
+        description="The Greek values for this option. May be null.",
     )
+
+
+# Backwards-compatible alias.
+OptionGreeks = OptionGreeksResponse
+"""Deprecated alias for `OptionGreeksResponse`. Will be removed in a future release."""
 
 
 class GreeksResponse(BaseModel):
     """Response containing greeks for multiple option symbols"""
-    greeks: List[OptionGreeks] = Field(
-        ...,
-        description="List of greeks for each symbol in the request"
+    greeks: List[OptionGreeksResponse] = Field(
+        default_factory=list,
+        description="List of greeks for each symbol in the request",
     )

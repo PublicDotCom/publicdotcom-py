@@ -5,8 +5,10 @@ real HTTP calls are made.
 """
 
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
+from uuid import UUID
 
 import pytest
 
@@ -24,6 +26,8 @@ from public_api_sdk.models.instrument import Instrument
 from public_api_sdk.models.option import GreeksResponse
 from public_api_sdk.models.order import (
     CancelAndReplaceRequest,
+    EquityMarketSession,
+    OpenCloseIndicator,
     Order,
     OrderExpirationRequest,
     OrderRequest,
@@ -31,6 +35,7 @@ from public_api_sdk.models.order import (
     OrderStatus,
     OrderType,
     PreflightRequest,
+    PreflightResponse,
     TimeInForce,
 )
 from public_api_sdk.models.portfolio import Portfolio
@@ -380,6 +385,171 @@ class TestPlaceOrder:
         self.client.auth_manager.refresh_token_if_needed.assert_called()
 
 
+class TestPlaceShortOrder:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.mock_order = Mock(spec=AsyncNewOrder)
+        self.client.place_order = AsyncMock(return_value=self.mock_order)
+
+    @pytest.mark.asyncio
+    async def test_builds_quantity_only_sell_to_open_order(self) -> None:
+        result = await self.client.place_short_order(
+            symbol="aapl",
+            quantity=Decimal("10"),
+            order_id=_VALID_UUID,
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            account_id="ACC456",
+        )
+
+        assert result is self.mock_order
+        request, account_id = self.client.place_order.call_args[0]
+        assert request.order_id == _VALID_UUID
+        assert request.instrument.symbol == "AAPL"
+        assert request.instrument.type == InstrumentType.EQUITY
+        assert request.order_side == OrderSide.SELL
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert request.quantity == Decimal("10")
+        assert request.amount is None
+        assert request.limit_price == Decimal("150.00")
+        assert request.equity_market_session == EquityMarketSession.CORE
+        assert account_id == "ACC456"
+
+    @pytest.mark.asyncio
+    async def test_generates_order_id_when_omitted(self) -> None:
+        await self.client.place_short_order(
+            symbol="AAPL",
+            quantity=Decimal("1"),
+        )
+
+        request, _ = self.client.place_order.call_args[0]
+        assert UUID(request.order_id).version == 4
+
+    @pytest.mark.asyncio
+    async def test_invalid_market_limit_price_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="`limit_price` can only be set"):
+            await self.client.place_short_order(
+                symbol="AAPL",
+                quantity=Decimal("10"),
+                limit_price=Decimal("150.00"),
+            )
+        self.client.place_order.assert_not_called()
+
+
+class TestFlattenAndGoShort:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.flatten_order = Mock()
+        self.flatten_order.order_id = "FLATTEN-123"
+        self.filled_flatten = Mock()
+        self.flatten_order.wait_for_fill = AsyncMock(return_value=self.filled_flatten)
+        self.short_order = Mock(spec=AsyncNewOrder)
+        self.client.place_order = AsyncMock(return_value=self.flatten_order)
+        self.client.place_short_order = AsyncMock(return_value=self.short_order)
+
+    def _portfolio(self, quantity: Decimal) -> SimpleNamespace:
+        positions = []
+        if quantity != 0:
+            positions.append(
+                SimpleNamespace(
+                    instrument=SimpleNamespace(
+                        symbol="AAPL",
+                        type=InstrumentType.EQUITY,
+                    ),
+                    quantity=quantity,
+                )
+            )
+        return SimpleNamespace(positions=positions)
+
+    @pytest.mark.asyncio
+    async def test_flattens_long_position_waits_then_places_short(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            side_effect=[
+                self._portfolio(Decimal("100")),
+                self._portfolio(Decimal("0")),
+            ]
+        )
+
+        result = await self.client.flatten_and_go_short(
+            symbol="aapl",
+            short_quantity=Decimal("200"),
+            order_id=_VALID_UUID,
+            flatten_order_id="85718cfb-32f4-4c57-976b-6060b94bbaf9",
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            flatten_timeout=12,
+            polling_interval=0.5,
+            account_id="ACC456",
+        )
+
+        flatten_request = self.client.place_order.call_args[0][0]
+        flatten_account_id = self.client.place_order.call_args[1]["account_id"]
+        assert flatten_request.instrument.symbol == "AAPL"
+        assert flatten_request.order_side == OrderSide.SELL
+        assert flatten_request.open_close_indicator == OpenCloseIndicator.CLOSE
+        assert flatten_request.order_type == OrderType.MARKET
+        assert flatten_request.quantity == Decimal("100")
+        assert flatten_account_id == "ACC456"
+        self.flatten_order.wait_for_fill.assert_called_once_with(
+            timeout=12,
+            polling_interval=0.5,
+        )
+        self.client.place_short_order.assert_called_once_with(
+            symbol="AAPL",
+            quantity=Decimal("200"),
+            order_id=_VALID_UUID,
+            order_type=OrderType.LIMIT,
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+            limit_price=Decimal("150.00"),
+            stop_price=None,
+            equity_market_session=EquityMarketSession.CORE,
+            account_id="ACC456",
+        )
+        assert result.initial_position_quantity == Decimal("100")
+        assert result.flatten_order is self.flatten_order
+        assert result.flatten_filled_order is self.filled_flatten
+        assert result.short_order is self.short_order
+
+    @pytest.mark.asyncio
+    async def test_flat_position_places_short_without_flatten_order(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            return_value=self._portfolio(Decimal("0"))
+        )
+
+        result = await self.client.flatten_and_go_short(
+            symbol="AAPL",
+            short_quantity=Decimal("25"),
+        )
+
+        self.client.place_order.assert_not_called()
+        self.client.place_short_order.assert_called_once()
+        assert result.initial_position_quantity == Decimal("0")
+        assert result.flatten_order is None
+        assert result.flatten_filled_order is None
+        assert result.short_order is self.short_order
+
+    @pytest.mark.asyncio
+    async def test_remaining_long_position_stops_before_short_order(self) -> None:
+        self.client.get_portfolio = AsyncMock(
+            side_effect=[
+                self._portfolio(Decimal("100")),
+                self._portfolio(Decimal("5")),
+            ]
+        )
+
+        with pytest.raises(RuntimeError, match="Long position in AAPL remains"):
+            await self.client.flatten_and_go_short(
+                symbol="AAPL",
+                short_quantity=Decimal("25"),
+            )
+
+        self.flatten_order.wait_for_fill.assert_called_once()
+        self.client.place_short_order.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # get_order / cancel_order
 # ---------------------------------------------------------------------------
@@ -534,6 +704,50 @@ class TestPreflightCalculation:
         )
         await self.client.perform_preflight_calculation(self.preflight_request)
         self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+
+class TestPreflightShortOrder:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.mock_response = Mock(spec=PreflightResponse)
+        self.client.perform_preflight_calculation = AsyncMock(
+            return_value=self.mock_response
+        )
+
+    @pytest.mark.asyncio
+    async def test_builds_quantity_only_sell_to_open_request(self) -> None:
+        result = await self.client.preflight_short_order(
+            symbol="aapl",
+            quantity=Decimal("10"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            validate_order=False,
+            account_id="ACC456",
+        )
+
+        assert result is self.mock_response
+        request, account_id = self.client.perform_preflight_calculation.call_args[0]
+        assert request.instrument.symbol == "AAPL"
+        assert request.instrument.type == InstrumentType.EQUITY
+        assert request.order_side == OrderSide.SELL
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert request.quantity == Decimal("10")
+        assert request.amount is None
+        assert request.limit_price == Decimal("150.00")
+        assert request.equity_market_session == EquityMarketSession.CORE
+        assert request.validate_order is False
+        assert account_id == "ACC456"
+
+    @pytest.mark.asyncio
+    async def test_invalid_market_limit_price_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="`limit_price` can only be set"):
+            await self.client.preflight_short_order(
+                symbol="AAPL",
+                quantity=Decimal("10"),
+                limit_price=Decimal("150.00"),
+            )
+        self.client.perform_preflight_calculation.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

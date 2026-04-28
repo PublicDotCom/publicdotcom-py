@@ -87,17 +87,16 @@ class TestMultilegOrderRequestValidation:
                 legs=self.base_legs,
             )
 
-    def test_limit_price_optional(self) -> None:
-        """Test that limit_price is optional for MultilegOrderRequest."""
-        order = MultilegOrderRequest(
-            order_id=self.valid_uuid,
-            quantity=10,
-            type=OrderType.LIMIT,
-            limit_price=None,
-            expiration=self.base_expiration,
-            legs=self.base_legs,
-        )
-        assert order.limit_price is None
+    def test_limit_price_required(self) -> None:
+        """limit_price is required per the spec (ApiMultilegOrderRequest.limitPrice)."""
+        with pytest.raises(ValueError):
+            MultilegOrderRequest(  # type: ignore[call-arg]
+                order_id=self.valid_uuid,
+                quantity=10,
+                type=OrderType.LIMIT,
+                expiration=self.base_expiration,
+                legs=self.base_legs,
+            )
 
 
 class TestSharedMultilegValidation:
@@ -124,14 +123,10 @@ class TestSharedMultilegValidation:
             "limit_price": Decimal("1.50"),
             "legs": self._create_valid_legs(),
         }
-        # add `order_id` only for MultilegOrderRequest
+        # quantity is required on both classes per the spec
+        base_args["quantity"] = kwargs.pop("quantity", 10)
         if request_class == MultilegOrderRequest:
             base_args["order_id"] = kwargs.pop("order_id", self.valid_uuid)
-            base_args["quantity"] = kwargs.pop("quantity", 10)
-        else:
-            # PreflightMultiLegRequest has optional `quantity`
-            if "quantity" in kwargs:
-                base_args["quantity"] = kwargs.pop("quantity")
         base_args.update(kwargs)
         return request_class(**base_args)
 
@@ -517,15 +512,15 @@ class TestPreflightMultiLegRequestValidation:
             ),
         ]
 
-    def test_quantity_optional(self) -> None:
-        """Test that quantity is optional for PreflightMultiLegRequest."""
-        request = PreflightMultiLegRequest(
-            order_type=OrderType.LIMIT,
-            limit_price=Decimal("1.50"),
-            expiration=self.base_expiration,
-            legs=self.base_legs,
-        )
-        assert request.quantity is None
+    def test_quantity_required(self) -> None:
+        """quantity is required per the spec (PreflightMultiLegRequest.quantity)."""
+        with pytest.raises(ValueError):
+            PreflightMultiLegRequest(  # type: ignore[call-arg]
+                order_type=OrderType.LIMIT,
+                limit_price=Decimal("1.50"),
+                expiration=self.base_expiration,
+                legs=self.base_legs,
+            )
 
     def test_quantity_can_be_provided(self) -> None:
         """Test that quantity can be provided for PreflightMultiLegRequest."""

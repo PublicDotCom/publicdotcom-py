@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.10-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.11-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -118,6 +118,23 @@ client = PublicApiClient(
     )
 ```
 
+#### Access Token Validity
+
+`ApiKeyAuthConfig` accepts an optional `validity_minutes` argument (default: `15`) that controls how long each minted access token stays valid on the server. Valid range is **5 to 1440 minutes (24 hours)**; values outside this range raise `ValueError`.
+
+```python
+# Long-lived session for a batch job — refresh every ~1 hour
+client = PublicApiClient(
+    ApiKeyAuthConfig(
+        api_secret_key="INSERT_API_SECRET_KEY",
+        validity_minutes=60,
+    ),
+    config=config,
+)
+```
+
+The SDK automatically refreshes the token ahead of its expiry (5 minutes of slack), so you don't need to manage refresh yourself — longer `validity_minutes` just means fewer token-mint round trips.
+
 #### Default Account Number
 
 The `default_account_number` configuration option simplifies API calls by eliminating the need to specify `account_id` in every method call. When set, any method that accepts an optional `account_id` parameter will automatically use the default account number if no account ID is explicitly provided.
@@ -178,12 +195,25 @@ for account in accounts_response.accounts:
 
 #### Get Portfolio
 
-Get a snapshot of account portfolio including positions, equity, and buying power.
+Get a snapshot of account portfolio including positions, equity, buying power, open orders, and multi-leg option strategies.
 
 ```python
 portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT_NUMBER")  # account_id optional if default set
 print(f"Total equity: {portfolio.equity}")
 print(f"Buying power: {portfolio.buying_power}")
+
+# Positions include the strategy IDs they belong to (empty list if not part of any strategy)
+for position in portfolio.positions:
+    if position.strategy_ids:
+        print(f"{position.instrument.symbol} is part of strategies: {position.strategy_ids}")
+
+# Multi-leg option strategies (e.g. spreads). Null if the backend does not support strategies.
+if portfolio.strategies:
+    for strategy in portfolio.strategies:
+        print(f"\n{strategy.display_name} (id={strategy.strategy_id})")
+        print(f"  Quantity: {strategy.quantity}, current value: ${strategy.current_value}")
+        for leg in strategy.option_legs:
+            print(f"  {leg.position_type} {leg.ratio_quantity}x {leg.symbol}")
 ```
 
 #### Get Account History
@@ -203,7 +233,7 @@ history = client.get_history(
 
 #### Get Quotes
 
-Retrieve real-time quotes for multiple instruments.
+Retrieve real-time quotes for multiple instruments. Each `Quote` includes the last/bid/ask, volume, open interest, previous close, a one-day change breakdown, and option-specific details (strike, mid price, and greeks) when the instrument is an option.
 
 ```python
 from public_api_sdk import OrderInstrument, InstrumentType
@@ -214,14 +244,34 @@ quotes = client.get_quotes([
 ])
 
 for quote in quotes:
-    print(f"{quote.instrument.symbol}: ${quote.last}")
+    print(f"{quote.instrument.symbol}: ${quote.last} (prev close ${quote.previous_close})")
+    if quote.one_day_change:
+        print(f"  1d change: ${quote.one_day_change.change} ({quote.one_day_change.percent_change}%)")
 ```
+
+For option quotes (either via `get_quotes` on an `OPTION` instrument, or the calls/puts inside `get_option_chain`), `quote.option_details` exposes greeks and mid price:
+
+```python
+if quote.option_details:
+    print(f"Strike: ${quote.option_details.strike_price}, mid: ${quote.option_details.mid_price}")
+    if quote.option_details.greeks:
+        g = quote.option_details.greeks
+        print(f"  Δ={g.delta} Γ={g.gamma} Θ={g.theta} ν={g.vega} IV={g.implied_volatility}")
+```
+
+> All fields on `GreekValues` are optional — the API may omit greeks for illiquid or expired contracts. Always guard with `if quote.option_details.greeks:` before reading individual values.
 
 #### Get Instrument Details
 
-Get detailed information about a specific instrument.
+Get detailed information about a specific instrument, including trading permissions, short-selling availability, option price increments, and type-specific details (bond or crypto).
 
 ```python
+from public_api_sdk import (
+    BondInstrumentDetails,
+    CryptoInstrumentDetails,
+    ShortingAvailability,
+)
+
 instrument = client.get_instrument(
     symbol="AAPL",
     instrument_type=InstrumentType.EQUITY
@@ -233,6 +283,25 @@ print(f"Trading: {instrument.trading}")
 print(f"Fractional Trading: {instrument.fractional_trading}")
 print(f"Option Trading: {instrument.option_trading}")
 print(f"Option Spread Trading: {instrument.option_spread_trading}")
+
+# Short-selling — only populated for shortable equities
+if instrument.shorting_availability:
+    print(f"Shorting: {instrument.shorting_availability.value}")
+    if instrument.shorting_availability == ShortingAvailability.HARD_TO_BORROW:
+        print(f"  HTB rate: {instrument.hard_to_borrow_percentage_rate}%")
+
+# Option price increments — present for optionable equities
+if instrument.option_contract_price_increments:
+    inc = instrument.option_contract_price_increments
+    print(f"Option increments: below $3 = {inc.increment_below_3}, above $3 = {inc.increment_above_3}")
+
+# Type-specific details (polymorphic on payload_type)
+details = instrument.instrument_details
+if isinstance(details, CryptoInstrumentDetails):
+    print(f"Crypto precision: qty={details.crypto_quantity_precision}, price={details.crypto_price_precision}")
+    print(f"Tradable in NY: {details.tradable_in_new_york}")
+elif isinstance(details, BondInstrumentDetails):
+    print(f"Bond outstanding: {details.has_outstanding}")
 ```
 
 #### Get All Instruments
@@ -240,12 +309,12 @@ print(f"Option Spread Trading: {instrument.option_spread_trading}")
 Retrieve all available trading instruments with optional filtering.
 
 ```python
-from public_api_sdk import InstrumentsRequest, InstrumentType, Trading
+from public_api_sdk import InstrumentsRequest, InstrumentType, TradingPermission
 
 instruments = client.get_all_instruments(
     InstrumentsRequest(
         type_filter=[InstrumentType.EQUITY],
-        trading_filter=[Trading.BUY_AND_SELL],
+        trading_filter=[TradingPermission.BUY_AND_SELL],
     )
 )
 ```
@@ -287,13 +356,16 @@ option_chain = client.get_option_chain(
 
 #### Get Option Greeks
 
-Get Greeks for a single option contract (OSI format).
+Get Greeks for a single option contract (OSI format). The API may return a symbol without any greeks (e.g. for illiquid contracts), and individual greek fields can be null — always guard before reading them.
 
 ```python
 greeks = client.get_option_greek(
     osi_symbol="AAPL260116C00270000"
 )
-print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
+if greeks.greeks:
+    print(f"Delta: {greeks.greeks.delta}, Gamma: {greeks.greeks.gamma}")
+else:
+    print("No greeks available for this contract")
 ```
 
 For multiple option symbols, use `get_option_greeks` (plural):
@@ -303,7 +375,8 @@ greeks_response = client.get_option_greeks(
     osi_symbols=["AAPL260116C00270000", "AAPL260116P00270000"]
 )
 for greek in greeks_response.greeks:
-    print(f"Delta: {greek.greeks.delta}, Gamma: {greek.greeks.gamma}")
+    if greek.greeks:
+        print(f"{greek.symbol}: Δ={greek.greeks.delta} Γ={greek.greeks.gamma} IV={greek.greeks.implied_volatility}")
 ```
 
 ### Order Management
@@ -350,8 +423,54 @@ preflight_request = PreflightRequest(
 
 preflight_response = client.perform_preflight_calculation(preflight_request)
 commission = preflight_response.estimated_commission or 0
+execution_fee = preflight_response.estimated_execution_fee or 0
 print(f"Estimated commission: ${commission:.2f}")
+print(f"Estimated execution fee: ${execution_fee:.2f}")
 print(f"Order value: ${preflight_response.order_value:.2f}")
+
+# Short-selling diagnostics — populated when the order side is SELL and the
+# instrument is a shortable equity.
+if preflight_response.short_selling:
+    ss = preflight_response.short_selling
+    print(f"Shorting: {ss.availability.value}, uptick rule: {ss.uptick_rule.value}")
+    if ss.hard_to_borrow_percentage_rate is not None:
+        print(f"  HTB rate: {ss.hard_to_borrow_percentage_rate}%")
+```
+
+##### Short-Sale Preflight
+
+For quantity-based equity short-sale estimates, use `preflight_short_order()`. The SDK sets the API-required short intent for you: `orderSide=SELL` and `openCloseIndicator=OPEN`. Notional short orders are not supported.
+
+```python
+short_preflight = client.preflight_short_order(
+    symbol="AAPL",
+    quantity=Decimal("10"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.CORE,
+)
+
+if short_preflight.short_selling:
+    ss = short_preflight.short_selling
+    print(f"Shorting: {ss.availability.value}, uptick rule: {ss.uptick_rule.value}")
+```
+
+The same helper exists on `AsyncPublicApiClient`; just `await` it.
+
+> Pass `validate_order=False` on the request to run a hypothetical "what-if" calculation that **doesn't** check the order against your current account state (buying power, permissions, etc.). The server defaults to `true`. The same flag is accepted on `PreflightMultiLegRequest`.
+
+```python
+hypothetical = client.perform_preflight_calculation(
+    PreflightRequest(
+        instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+        order_side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        quantity=1000,                 # more than account buying power
+        limit_price=Decimal("227.50"),
+        validate_order=False,          # skip account-state checks
+    )
+)
 ```
 
 ##### Multi-Leg Preflight
@@ -412,9 +531,121 @@ print(f"  Buying Power Required: ${bpr:.2f}")
 print("\n" + "="*70)
 ```
 
-##### Strategy Preflight Helpers
+##### Vertical Spread Preflight (OSI-direct)
 
-The SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
+For each of the four common vertical spread strategies the SDK exposes a dedicated preflight method on the client. Pass the OSI symbols of the two contracts, the contract count, and the limit price — the SDK validates that both legs share an underlying and expiration, that the strikes are ordered correctly for the strategy, and signs the limit price for credit vs. debit before sending.
+
+OSI symbols can be obtained directly from `get_option_chain()` (each `OptionContract` has a `symbol` field in OSI format), or built manually. The format is: symbol padded to 6 characters + `YYMMDD` + `C`/`P` + 8-digit strike (3 implied decimal places). For example, AAPL $190 call expiring 2025-12-19 → `AAPL251219C00190000`.
+
+```python
+from decimal import Decimal
+from public_api_sdk import TimeInForce
+
+# Bear Call Spread — profits if AAPL stays below $190 at expiry.
+# limit_price is the minimum credit you'll accept (always positive).
+result = client.preflight_call_credit_spread(
+    sell_contract_osi="AAPL251219C00190000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+print(f"Estimated credit: ${abs(result.estimated_cost or 0):.2f}")
+print(f"Buying power required: ${result.buying_power_requirement or 0:.2f}")
+
+# Bull Call Spread — profits if AAPL rises above $200 at expiry.
+# limit_price is the maximum debit you'll pay (positive).
+result = client.preflight_call_debit_spread(
+    sell_contract_osi="AAPL251219C00200000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("3.00"),
+)
+
+# Bull Put Spread — profits if AAPL stays above $185 at expiry.
+result = client.preflight_put_credit_spread(
+    sell_contract_osi="AAPL251219P00185000",
+    buy_contract_osi="AAPL251219P00180000",
+    quantity=1,
+    limit_price=Decimal("1.20"),
+)
+
+# Bear Put Spread — profits if AAPL falls below $185 at expiry.
+result = client.preflight_put_debit_spread(
+    sell_contract_osi="AAPL251219P00180000",
+    buy_contract_osi="AAPL251219P00185000",
+    quantity=1,
+    limit_price=Decimal("2.10"),
+)
+```
+
+All four methods accept the same optional kwargs:
+
+- `time_in_force` — `TimeInForce.DAY` (default) or `TimeInForce.GTD`
+- `expiration_time` — required when `time_in_force=TimeInForce.GTD`
+- `validate_order` — set to `False` for hypothetical "what-if" calculations that don't check buying power / permissions
+- `account_id` — overrides `default_account_number`
+
+> **Strike-ordering is validated locally before the network call**, so typos and copy-paste errors are caught immediately:
+> - **CALL credit** (Bear): `sell_strike < buy_strike`
+> - **CALL debit** (Bull): `buy_strike < sell_strike`
+> - **PUT credit** (Bull): `sell_strike > buy_strike`
+> - **PUT debit** (Bear): `buy_strike > sell_strike`
+>
+> The SDK also rejects pairs that don't share the same underlying or expiration date — a `ValueError` is raised before any HTTP request is made.
+
+The same four methods exist on `AsyncPublicApiClient`; just `await` them.
+
+##### Vertical Spread Order Placement (OSI-direct)
+
+The same OSI-direct convenience shape is available for submitting live multi-leg spread orders. These methods build a `MultilegOrderRequest`, validate the legs locally, sign credit/debit limit prices the same way as preflight, and call `place_multileg_order()`.
+
+```python
+from decimal import Decimal
+
+# Bear Call Spread — submits a live order.
+# order_id is optional; pass one when you want explicit idempotency control.
+new_order = client.place_call_credit_spread(
+    sell_contract_osi="AAPL251219C00190000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+print(f"Order placed: {new_order.order_id}")
+
+new_order = client.place_call_debit_spread(
+    sell_contract_osi="AAPL251219C00200000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("3.00"),
+)
+
+new_order = client.place_put_credit_spread(
+    sell_contract_osi="AAPL251219P00185000",
+    buy_contract_osi="AAPL251219P00180000",
+    quantity=1,
+    limit_price=Decimal("1.20"),
+)
+
+new_order = client.place_put_debit_spread(
+    sell_contract_osi="AAPL251219P00180000",
+    buy_contract_osi="AAPL251219P00185000",
+    quantity=1,
+    limit_price=Decimal("2.10"),
+)
+```
+
+All four placement methods accept the same optional kwargs:
+
+- `order_id` — optional UUID idempotency key; generated automatically if omitted
+- `time_in_force` — `TimeInForce.DAY` (default) or `TimeInForce.GTD`
+- `expiration_time` — required when `time_in_force=TimeInForce.GTD`
+- `account_id` — overrides `default_account_number`
+
+The same four methods exist on `AsyncPublicApiClient`; just `await` them.
+
+##### Strategy Preflight Helpers (strikes-based)
+
+For an alternative interface that takes strikes + symbol instead of pre-built OSI symbols, the SDK provides high-level helpers on `client.strategy_preflight` that build the multi-leg request for you — no OSI symbols or leg wiring required.
 
 **CALL credit spread (Bear Call Spread)** — profits if the underlying stays *below* the sell strike at expiry.
 
@@ -514,6 +745,48 @@ order_request = OrderRequest(
 order_response = client.place_order(order_request)
 print(f"Order placed with ID: {order_response.order_id}")
 ```
+
+##### Place Short Order
+
+Submit a quantity-based equity short-sale order. The SDK sets the API-required short intent for you: `orderSide=SELL` and `openCloseIndicator=OPEN`. Notional short orders are not supported. Use `preflight_short_order()` first when you want borrow, uptick-rule, and margin diagnostics before sending the live order.
+
+```python
+short_order = client.place_short_order(
+    symbol="AAPL",
+    quantity=Decimal("10"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.CORE,
+)
+
+print(f"Short order placed: {short_order.order_id}")
+```
+
+Pass `order_id` when you want explicit idempotency control; otherwise the SDK generates a UUIDv4. The same helper exists on `AsyncPublicApiClient`; just `await` it.
+
+##### Flatten and Go Short
+
+> **Experimental:** Use this helper with caution. It sends two separate orders
+> and is not an atomic exchange operation. Market conditions may change between
+> the flatten fill and the short entry.
+
+If you may already be long a symbol, use `flatten_and_go_short()` to avoid sending one oversized sell order. The helper places a market sell-to-close order for the current long quantity, waits for that flatten order to fill, re-fetches the portfolio to confirm no long position remains, and only then places the short order.
+
+```python
+result = client.flatten_and_go_short(
+    symbol="AAPL",
+    short_quantity=Decimal("200"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    flatten_timeout=60,
+)
+
+if result.flatten_order:
+    print(f"Flattened long position with order: {result.flatten_order.order_id}")
+print(f"Short order placed: {result.short_order.order_id}")
+```
+
+This is a two-order workflow, not an atomic exchange operation. If the flatten order does not fill before `flatten_timeout`, or if the refreshed portfolio still shows a long position after the fill, the short order is not placed. The same helper exists on `AsyncPublicApiClient`; just `await` it.
 
 ##### Place Multi-Leg Order
 
@@ -800,10 +1073,10 @@ quotes = await client.get_quotes([
 instrument = await client.get_instrument("AAPL", InstrumentType.EQUITY)
 
 # All tradeable instruments
-from public_api_sdk import InstrumentsRequest, Trading
+from public_api_sdk import InstrumentsRequest, TradingPermission
 
 instruments = await client.get_all_instruments(
-    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[Trading.BUY_AND_SELL])
+    InstrumentsRequest(type_filter=[InstrumentType.EQUITY], trading_filter=[TradingPermission.BUY_AND_SELL])
 )
 ```
 

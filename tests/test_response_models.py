@@ -20,15 +20,34 @@ from public_api_sdk.models.history import (
     HistoryTransaction,
     TransactionType,
 )
-from public_api_sdk.models.instrument import Instrument, InstrumentsResponse, Trading
+from public_api_sdk.models.instrument import (
+    BondInstrumentDetails,
+    CryptoInstrumentDetails,
+    Instrument,
+    InstrumentsResponse,
+    OptionPriceIncrement,
+    ShortingAvailability,
+    Trading,
+)
 from public_api_sdk.models.instrument_type import InstrumentType
 from public_api_sdk.models.option import (
     GreekValues,
     GreeksResponse,
     OptionGreeks,
 )
-from public_api_sdk.models.portfolio import BuyingPower, Portfolio, PortfolioPosition
-from public_api_sdk.models.quote import Quote, QuoteOutcome
+from public_api_sdk.models.portfolio import (
+    BuyingPower,
+    Portfolio,
+    PortfolioPosition,
+    Strategy,
+    StrategyLeg,
+)
+from public_api_sdk.models.quote import (
+    OneDayChange,
+    Quote,
+    QuoteOptionDetails,
+    QuoteOutcome,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -471,3 +490,477 @@ class TestGreeksResponseDeserialization:
     def test_empty_greeks_list(self) -> None:
         response = GreeksResponse(**{"greeks": []})
         assert response.greeks == []
+
+    def test_greeks_omitted_entirely(self) -> None:
+        """Spec: GreeksResponse.greeks is optional. Missing → empty list."""
+        response = GreeksResponse(**{})
+        assert response.greeks == []
+
+    def test_greek_response_without_greeks(self) -> None:
+        """Spec: GreekResponse.greeks is optional — API may omit it."""
+        payload = {"greeks": [{"symbol": "AAPL260116C00270000"}]}
+        response = GreeksResponse(**payload)
+        assert response.greeks[0].symbol == "AAPL260116C00270000"
+        assert response.greeks[0].greeks is None
+
+    def test_partial_greek_values(self) -> None:
+        """Spec: all individual greek fields are optional."""
+        partial = {"delta": "0.52"}
+        values = GreekValues(**partial)
+        assert values.delta == Decimal("0.52")
+        assert values.gamma is None
+        assert values.theta is None
+        assert values.implied_volatility is None
+
+    def test_empty_greek_values(self) -> None:
+        """All greek fields absent parses to an all-None instance."""
+        values = GreekValues(**{})
+        assert values.delta is None
+        assert values.gamma is None
+        assert values.theta is None
+        assert values.vega is None
+        assert values.rho is None
+        assert values.implied_volatility is None
+
+
+# ---------------------------------------------------------------------------
+# Quote — new fields (previousClose, oneDayChange, optionDetails)
+# ---------------------------------------------------------------------------
+
+
+class TestQuoteNewFieldsDeserialization:
+    def test_previous_close(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "previousClose": "149.00",
+        }
+        quote = Quote(**payload)
+        assert quote.previous_close == Decimal("149.00")
+
+    def test_one_day_change(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "oneDayChange": {"change": "1.50", "percentChange": "1.01"},
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.one_day_change, OneDayChange)
+        assert quote.one_day_change.change == Decimal("1.50")
+        assert quote.one_day_change.percent_change == Decimal("1.01")
+
+    def test_one_day_change_partial(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+            "oneDayChange": {"change": "0.25"},
+        }
+        quote = Quote(**payload)
+        assert quote.one_day_change is not None
+        assert quote.one_day_change.change == Decimal("0.25")
+        assert quote.one_day_change.percent_change is None
+
+    def test_option_details_with_greeks(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {
+                "strikePrice": "270.00",
+                "midPrice": "3.25",
+                "greeks": {
+                    "delta": "0.52",
+                    "gamma": "0.015",
+                    "theta": "-0.04",
+                    "vega": "0.18",
+                    "rho": "0.08",
+                    "impliedVolatility": "0.30",
+                },
+            },
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.option_details, QuoteOptionDetails)
+        assert quote.option_details.strike_price == Decimal("270.00")
+        assert quote.option_details.mid_price == Decimal("3.25")
+        assert quote.option_details.greeks is not None
+        assert quote.option_details.greeks.delta == Decimal("0.52")
+        assert quote.option_details.greeks.implied_volatility == Decimal("0.30")
+
+    def test_option_details_without_greeks(self) -> None:
+        """Spec: OptionDetails.greeks is optional."""
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {"strikePrice": "270.00"},
+        }
+        quote = Quote(**payload)
+        assert quote.option_details is not None
+        assert quote.option_details.strike_price == Decimal("270.00")
+        assert quote.option_details.greeks is None
+        assert quote.option_details.mid_price is None
+
+    def test_option_details_with_null_mid_price(self) -> None:
+        """Spec: midPrice is nullable — explicit null should parse."""
+        payload = {
+            "instrument": {"symbol": "AAPL260116C00270000", "type": "OPTION"},
+            "outcome": "SUCCESS",
+            "optionDetails": {"strikePrice": "270.00", "midPrice": None},
+        }
+        quote = Quote(**payload)
+        assert quote.option_details is not None
+        assert quote.option_details.mid_price is None
+
+    def test_new_fields_absent(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+        }
+        quote = Quote(**payload)
+        assert quote.previous_close is None
+        assert quote.one_day_change is None
+        assert quote.option_details is None
+
+
+# ---------------------------------------------------------------------------
+# Instrument — new fields (bond details, shorting, option price increments)
+# ---------------------------------------------------------------------------
+
+
+class TestInstrumentNewFieldsDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "trading": "BUY_AND_SELL",
+            "fractionalTrading": "BUY_AND_SELL",
+            "optionTrading": "BUY_AND_SELL",
+            "optionSpreadTrading": "BUY_AND_SELL",
+        }
+
+    def test_crypto_instrument_details(self) -> None:
+        payload = self._base_payload()
+        payload["instrument"] = {"symbol": "BTC", "type": "CRYPTO"}
+        payload["instrumentDetails"] = {
+            "payloadType": "Crypto",
+            "cryptoQuantityPrecision": 8,
+            "cryptoPricePrecision": 2,
+            "tradableInNewYork": True,
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, CryptoInstrumentDetails)
+        assert instrument.instrument_details.crypto_quantity_precision == 8
+        assert instrument.instrument_details.crypto_price_precision == 2
+        assert instrument.instrument_details.tradable_in_new_york is True
+
+    def test_bond_instrument_details(self) -> None:
+        payload = self._base_payload()
+        payload["instrument"] = {"symbol": "US912828XYZ", "type": "BOND"}
+        payload["instrumentDetails"] = {
+            "payloadType": "Bond",
+            "hasOutstanding": True,
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, BondInstrumentDetails)
+        assert instrument.instrument_details.has_outstanding is True
+
+    def test_bond_instrument_details_minimal(self) -> None:
+        """Bond payload with only payloadType should still parse."""
+        payload = self._base_payload()
+        payload["instrumentDetails"] = {"payloadType": "Bond"}
+        instrument = Instrument(**payload)
+        assert isinstance(instrument.instrument_details, BondInstrumentDetails)
+        assert instrument.instrument_details.has_outstanding is None
+
+    def test_crypto_details_all_fields_optional(self) -> None:
+        """Crypto variant should parse even if only payloadType is present."""
+        payload = self._base_payload()
+        payload["instrumentDetails"] = {"payloadType": "Crypto"}
+        instrument = Instrument(**payload)
+        assert instrument.instrument_details is not None
+        assert isinstance(instrument.instrument_details, CryptoInstrumentDetails)
+        assert instrument.instrument_details.crypto_quantity_precision is None
+
+    def test_shorting_availability(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "HARD_TO_BORROW"
+        payload["hardToBorrowPercentageRate"] = "5.25"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.HARD_TO_BORROW
+        assert instrument.hard_to_borrow_percentage_rate == Decimal("5.25")
+
+    def test_shorting_easy_to_borrow(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "EASY_TO_BORROW"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.EASY_TO_BORROW
+
+    def test_shorting_not_shortable(self) -> None:
+        payload = self._base_payload()
+        payload["shortingAvailability"] = "NOT_SHORTABLE"
+        instrument = Instrument(**payload)
+        assert instrument.shorting_availability == ShortingAvailability.NOT_SHORTABLE
+
+    def test_option_contract_price_increments(self) -> None:
+        payload = self._base_payload()
+        payload["optionContractPriceIncrements"] = {
+            "incrementBelow3": "0.05",
+            "incrementAbove3": "0.10",
+        }
+        instrument = Instrument(**payload)
+        assert isinstance(
+            instrument.option_contract_price_increments, OptionPriceIncrement
+        )
+        assert instrument.option_contract_price_increments.increment_below_3 == Decimal(
+            "0.05"
+        )
+        assert instrument.option_contract_price_increments.increment_above_3 == Decimal(
+            "0.10"
+        )
+
+    def test_all_new_fields_absent(self) -> None:
+        """New fields are all optional — should parse without them."""
+        instrument = Instrument(**self._base_payload())
+        assert instrument.instrument_details is None
+        assert instrument.shorting_availability is None
+        assert instrument.hard_to_borrow_percentage_rate is None
+        assert instrument.option_contract_price_increments is None
+
+    def test_instruments_response_mixed_types(self) -> None:
+        """Response containing both bond and crypto instruments should parse."""
+        payload = {
+            "instruments": [
+                {
+                    "instrument": {"symbol": "BTC", "type": "CRYPTO"},
+                    "trading": "BUY_AND_SELL",
+                    "fractionalTrading": "BUY_AND_SELL",
+                    "optionTrading": "DISABLED",
+                    "optionSpreadTrading": "DISABLED",
+                    "instrumentDetails": {
+                        "payloadType": "Crypto",
+                        "cryptoQuantityPrecision": 8,
+                    },
+                },
+                {
+                    "instrument": {"symbol": "US912828XYZ", "type": "BOND"},
+                    "trading": "BUY_AND_SELL",
+                    "fractionalTrading": "DISABLED",
+                    "optionTrading": "DISABLED",
+                    "optionSpreadTrading": "DISABLED",
+                    "instrumentDetails": {
+                        "payloadType": "Bond",
+                        "hasOutstanding": True,
+                    },
+                },
+            ]
+        }
+        response = InstrumentsResponse(**payload)
+        assert len(response.instruments) == 2
+        assert isinstance(
+            response.instruments[0].instrument_details, CryptoInstrumentDetails
+        )
+        assert isinstance(
+            response.instruments[1].instrument_details, BondInstrumentDetails
+        )
+
+
+# ---------------------------------------------------------------------------
+# Portfolio — strategies + strategyIds
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioStrategiesDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "accountId": "ACC-001",
+            "accountType": "BROKERAGE",
+            "buyingPower": {
+                "cashOnlyBuyingPower": "10000.00",
+                "buyingPower": "20000.00",
+                "optionsBuyingPower": "5000.00",
+            },
+            "equity": [],
+            "positions": [],
+            "orders": [],
+        }
+
+    def test_position_with_strategy_ids(self) -> None:
+        payload = self._base_payload()
+        payload["positions"] = [
+            {
+                "instrument": {
+                    "symbol": "AAPL260116C00270000",
+                    "name": "AAPL Jan 2026 $270 Call",
+                    "type": "OPTION",
+                },
+                "quantity": "1",
+                "strategyIds": ["strategy-uuid-1", "strategy-uuid-2"],
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        position = portfolio.positions[0]
+        assert position.strategy_ids == ["strategy-uuid-1", "strategy-uuid-2"]
+
+    def test_position_without_strategy_ids_defaults_empty(self) -> None:
+        """strategyIds is required per spec, but SDK tolerates omission with [] default."""
+        payload = self._base_payload()
+        payload["positions"] = [
+            {
+                "instrument": {"symbol": "AAPL", "name": "Apple Inc.", "type": "EQUITY"},
+                "quantity": "100",
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        assert portfolio.positions[0].strategy_ids == []
+
+    def test_portfolio_with_strategies(self) -> None:
+        payload = self._base_payload()
+        payload["strategies"] = [
+            {
+                "strategyId": "strategy-uuid-1",
+                "displayName": "$180/$185 Call Spread",
+                "quantity": "2",
+                "currentValue": "500.00",
+                "percentOfPortfolio": "2.5",
+                "optionLegs": [
+                    {
+                        "symbol": "AAPL260116C00180000",
+                        "positionType": "LONG",
+                        "ratioQuantity": "1",
+                    },
+                    {
+                        "symbol": "AAPL260116C00185000",
+                        "positionType": "SHORT",
+                        "ratioQuantity": "1",
+                    },
+                ],
+            }
+        ]
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies is not None
+        assert len(portfolio.strategies) == 1
+        strategy = portfolio.strategies[0]
+        assert isinstance(strategy, Strategy)
+        assert strategy.strategy_id == "strategy-uuid-1"
+        assert strategy.display_name == "$180/$185 Call Spread"
+        assert strategy.quantity == Decimal("2")
+        assert strategy.current_value == Decimal("500.00")
+        assert len(strategy.option_legs) == 2
+        assert isinstance(strategy.option_legs[0], StrategyLeg)
+        assert strategy.option_legs[0].symbol == "AAPL260116C00180000"
+        assert strategy.option_legs[0].position_type == "LONG"
+        assert strategy.option_legs[0].ratio_quantity == "1"
+        assert strategy.option_legs[1].position_type == "SHORT"
+
+    def test_portfolio_strategies_null(self) -> None:
+        """Spec: strategies is nullable — backends without strategy support return null."""
+        payload = self._base_payload()
+        payload["strategies"] = None
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies is None
+
+    def test_portfolio_strategies_absent(self) -> None:
+        portfolio = Portfolio(**self._base_payload())
+        assert portfolio.strategies is None
+
+    def test_portfolio_strategies_empty_list(self) -> None:
+        payload = self._base_payload()
+        payload["strategies"] = []
+        portfolio = Portfolio(**payload)
+        assert portfolio.strategies == []
+
+    def test_position_strategy_ids_snake_case(self) -> None:
+        """populate_by_name=True — snake_case input also works."""
+        position = PortfolioPosition(
+            instrument={"symbol": "AAPL", "name": "Apple", "type": "EQUITY"},
+            quantity=Decimal("100"),
+            strategy_ids=["s1", "s2"],
+        )
+        assert position.strategy_ids == ["s1", "s2"]
+
+
+# ---------------------------------------------------------------------------
+# PreflightResponse — new fields (shortSelling, estimatedExecutionFee)
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightResponseNewFieldsDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "orderValue": "1000.00",
+        }
+
+    def test_estimated_execution_fee(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse
+
+        payload = self._base_payload()
+        payload["estimatedExecutionFee"] = "0.15"
+        response = PreflightResponse(**payload)
+        assert response.estimated_execution_fee == Decimal("0.15")
+
+    def test_short_selling_full(self) -> None:
+        from public_api_sdk.models.order import (
+            PreflightResponse,
+            ShortingAvailability,
+            ShortSelling,
+            UptickRule,
+        )
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "HARD_TO_BORROW",
+            "uptickRule": "TRIGGERED",
+            "hardToBorrowPercentageRate": "5.25",
+            "initialMarginRequirementPercentage": "150.0",
+            "maintenanceMarginRequirementPercentage": "130.0",
+            "maxQuantityForLocate": 10000,
+        }
+        response = PreflightResponse(**payload)
+        assert isinstance(response.short_selling, ShortSelling)
+        assert response.short_selling.availability == ShortingAvailability.HARD_TO_BORROW
+        assert response.short_selling.uptick_rule == UptickRule.TRIGGERED
+        assert response.short_selling.hard_to_borrow_percentage_rate == Decimal("5.25")
+        assert response.short_selling.initial_margin_requirement_percentage == Decimal(
+            "150.0"
+        )
+        assert response.short_selling.maintenance_margin_requirement_percentage == (
+            Decimal("130.0")
+        )
+        assert response.short_selling.max_quantity_for_locate == 10000
+
+    def test_short_selling_required_only(self) -> None:
+        """Spec: only availability and uptickRule are required on ShortSelling."""
+        from public_api_sdk.models.order import (
+            PreflightResponse,
+            ShortingAvailability,
+            UptickRule,
+        )
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "EASY_TO_BORROW",
+            "uptickRule": "NOT_TRIGGERED",
+        }
+        response = PreflightResponse(**payload)
+        assert response.short_selling is not None
+        assert response.short_selling.availability == ShortingAvailability.EASY_TO_BORROW
+        assert response.short_selling.uptick_rule == UptickRule.NOT_TRIGGERED
+        assert response.short_selling.hard_to_borrow_percentage_rate is None
+        assert response.short_selling.max_quantity_for_locate is None
+
+    def test_short_selling_not_shortable(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse, ShortingAvailability
+
+        payload = self._base_payload()
+        payload["shortSelling"] = {
+            "availability": "NOT_SHORTABLE",
+            "uptickRule": "NOT_TRIGGERED",
+        }
+        response = PreflightResponse(**payload)
+        assert response.short_selling is not None
+        assert response.short_selling.availability == ShortingAvailability.NOT_SHORTABLE
+
+    def test_new_fields_absent(self) -> None:
+        from public_api_sdk.models.order import PreflightResponse
+
+        response = PreflightResponse(**self._base_payload())
+        assert response.estimated_execution_fee is None
+        assert response.short_selling is None

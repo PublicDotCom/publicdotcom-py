@@ -1,5 +1,7 @@
 """AsyncPublicApiClient — async counterpart to PublicApiClient."""
 
+from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING
 
 from .async_api_client import AsyncApiClient
@@ -8,9 +10,15 @@ from .async_order_subscription_manager import AsyncOrderSubscriptionManager
 from .async_price_stream import AsyncPriceStream
 from .async_strategy_preflight import AsyncStrategyPreflight
 from .async_subscription_manager import AsyncPriceSubscriptionManager
+from .strategy_preflight import (
+    _SpreadKind,
+    _build_two_leg_spread_order_request,
+    _build_two_leg_spread_request,
+)
 from .models import (
     AccountsResponse,
     CancelAndReplaceRequest,
+    EquityMarketSession,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -19,24 +27,32 @@ from .models import (
     InstrumentsResponse,
     InstrumentType,
     MultilegOrderRequest,
-    MultilegOrderResult,
     OptionChainRequest,
     OptionChainResponse,
     OptionExpirationsRequest,
     OptionExpirationsResponse,
-    OptionGreeks,
+    OptionGreeksResponse,
     Order,
     OrderInstrument,
     OrderRequest,
-    OrderResponse,
+    OrderResult,
+    OrderType,
     Portfolio,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
     PreflightRequest,
     PreflightResponse,
     Quote,
+    TimeInForce,
 )
 from .models.async_new_order import AsyncNewOrder
+from .short_order import (
+    AsyncFlattenAndShortResult,
+    _build_flatten_long_order_request,
+    _build_short_order_request,
+    _build_short_preflight_request,
+    _get_equity_position_quantity,
+)
 
 if TYPE_CHECKING:
     from .auth_config import AsyncAuthConfig
@@ -362,7 +378,7 @@ class AsyncPublicApiClient:
         self,
         osi_symbol: str,
         account_id: Optional[str] = None,
-    ) -> OptionGreeks:
+    ) -> OptionGreeksResponse:
         """Get option greeks for a single OSI-normalized symbol.
 
         Args:
@@ -405,6 +421,34 @@ class AsyncPublicApiClient:
         )
         return PreflightResponse(**response)
 
+    async def preflight_short_order(
+        self,
+        symbol: str,
+        quantity: Decimal,
+        *,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightResponse:
+        """Preflight a quantity-based equity short-sale order. Async."""
+        request = _build_short_preflight_request(
+            symbol=symbol,
+            quantity=quantity,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            validate_order=validate_order,
+        )
+        return await self.perform_preflight_calculation(request, account_id)
+
     async def perform_multi_leg_preflight_calculation(
         self,
         preflight_request: PreflightMultiLegRequest,
@@ -426,6 +470,330 @@ class AsyncPublicApiClient:
             json_data=preflight_request.model_dump(by_alias=True, exclude_none=True),
         )
         return PreflightMultiLegResponse(**response)
+
+    async def preflight_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Call Spread (CALL credit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_call_credit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Call Spread (CALL debit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_call_debit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bull Put Spread (PUT credit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_put_credit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def preflight_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        validate_order: Optional[bool] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightMultiLegResponse:
+        """Preflight a Bear Put Spread (PUT debit spread). Async.
+
+        See :meth:`PublicApiClient.preflight_put_debit_spread` for full
+        argument and behaviour documentation.
+        """
+        request = _build_two_leg_spread_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            validate_order=validate_order,
+        )
+        return await self.perform_multi_leg_preflight_calculation(request, account_id)
+
+    async def place_call_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Place a Bear Call Spread (CALL credit spread). Async."""
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return await self.place_multileg_order(request, account_id)
+
+    async def place_call_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Place a Bull Call Spread (CALL debit spread). Async."""
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return await self.place_multileg_order(request, account_id)
+
+    async def place_put_credit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Place a Bull Put Spread (PUT credit spread). Async."""
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return await self.place_multileg_order(request, account_id)
+
+    async def place_put_debit_spread(
+        self,
+        sell_contract_osi: str,
+        buy_contract_osi: str,
+        quantity: int,
+        limit_price: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Place a Bear Put Spread (PUT debit spread). Async."""
+        request = _build_two_leg_spread_order_request(
+            sell_contract_osi=sell_contract_osi,
+            buy_contract_osi=buy_contract_osi,
+            kind=_SpreadKind.PUT_DEBIT,
+            quantity=quantity,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            order_id=order_id,
+        )
+        return await self.place_multileg_order(request, account_id)
+
+    async def place_short_order(
+        self,
+        symbol: str,
+        quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        account_id: Optional[str] = None,
+    ) -> AsyncNewOrder:
+        """Place a quantity-based equity short-sale order. Async."""
+        request = _build_short_order_request(
+            symbol=symbol,
+            quantity=quantity,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            order_id=order_id,
+        )
+        return await self.place_order(request, account_id)
+
+    async def flatten_and_go_short(
+        self,
+        symbol: str,
+        short_quantity: Decimal,
+        *,
+        order_id: Optional[str] = None,
+        flatten_order_id: Optional[str] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.DAY,
+        expiration_time: Optional[datetime] = None,
+        limit_price: Optional[Decimal] = None,
+        stop_price: Optional[Decimal] = None,
+        equity_market_session: Optional[EquityMarketSession] = None,
+        flatten_timeout: Optional[float] = 60.0,
+        polling_interval: float = 1.0,
+        account_id: Optional[str] = None,
+    ) -> AsyncFlattenAndShortResult:
+        """Flatten an existing long equity position, then place a short order.
+
+        Experimental: use with caution. This is a two-order workflow, not an
+        atomic exchange operation, and market conditions may change between
+        the flatten fill and the short entry.
+        """
+        account_id = self._get_account_id(account_id)
+        normalized_symbol = symbol.strip().upper()
+
+        portfolio = await self.get_portfolio(account_id=account_id)
+        initial_quantity = _get_equity_position_quantity(
+            portfolio, normalized_symbol
+        )
+
+        flatten_order: Optional[AsyncNewOrder] = None
+        flatten_filled_order: Optional[Order] = None
+
+        if initial_quantity > 0:
+            flatten_request = _build_flatten_long_order_request(
+                symbol=normalized_symbol,
+                quantity=initial_quantity,
+                equity_market_session=equity_market_session,
+                order_id=flatten_order_id,
+            )
+            flatten_order = await self.place_order(
+                flatten_request, account_id=account_id
+            )
+            flatten_filled_order = await flatten_order.wait_for_fill(
+                timeout=flatten_timeout,
+                polling_interval=polling_interval,
+            )
+
+            refreshed_portfolio = await self.get_portfolio(account_id=account_id)
+            remaining_quantity = _get_equity_position_quantity(
+                refreshed_portfolio, normalized_symbol
+            )
+            if remaining_quantity > 0:
+                raise RuntimeError(
+                    f"Long position in {normalized_symbol} remains after flatten "
+                    f"order {flatten_order.order_id}: quantity={remaining_quantity}. "
+                    "Short order was not placed."
+                )
+
+        short_order = await self.place_short_order(
+            symbol=normalized_symbol,
+            quantity=short_quantity,
+            order_id=order_id,
+            order_type=order_type,
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            equity_market_session=equity_market_session,
+            account_id=account_id,
+        )
+
+        return AsyncFlattenAndShortResult(
+            initial_position_quantity=initial_quantity,
+            flatten_order=flatten_order,
+            flatten_filled_order=flatten_filled_order,
+            short_order=short_order,
+        )
 
     # ------------------------------------------------------------------ #
     # Order placement                                                      #
@@ -451,7 +819,7 @@ class AsyncPublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
         return AsyncNewOrder(
             order_id=order_response.order_id,
             account_id=account_id,
@@ -479,7 +847,7 @@ class AsyncPublicApiClient:
             f"/userapigateway/trading/{account_id}/order/multileg",
             json_data=order_request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_result = MultilegOrderResult(**response)
+        order_result = OrderResult(**response)
         return AsyncNewOrder(
             order_id=order_result.order_id,
             account_id=account_id,
@@ -555,7 +923,7 @@ class AsyncPublicApiClient:
             f"/userapigateway/trading/{account_id}/order",
             json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
-        order_response = OrderResponse(**response)
+        order_response = OrderResult(**response)
         return AsyncNewOrder(
             order_id=order_response.order_id,
             account_id=account_id,

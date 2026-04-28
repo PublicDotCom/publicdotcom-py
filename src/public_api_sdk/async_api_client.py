@@ -89,7 +89,7 @@ class AsyncApiClient:
         except json.JSONDecodeError:
             response_data = {"raw_content": response.text}
 
-        if response.status_code == 200:
+        if 200 <= response.status_code < 300:
             return response_data
 
         error_message = response_data.get("message", "Unknown error")

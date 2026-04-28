@@ -7,6 +7,7 @@ import pytest
 
 from public_api_sdk.models.order import (
     CancelAndReplaceRequest,
+    OpenCloseIndicator,
     OrderRequest,
     PreflightRequest,
     OrderInstrument,
@@ -118,6 +119,21 @@ class TestSharedValidation:
         request = self._create_request(request_class, quantity=100)
         assert request.quantity == 100
         assert request.amount is None
+
+    @pytest.mark.parametrize("request_class", [OrderRequest, PreflightRequest])
+    def test_equity_short_intent_open_close_indicator(
+        self, request_class: Union[Type[OrderRequest], Type[PreflightRequest]]
+    ) -> None:
+        """Equity short-sale requests may carry open/close intent."""
+        request = self._create_request(
+            request_class,
+            order_side=OrderSide.SELL,
+            quantity=100,
+            open_close_indicator=OpenCloseIndicator.OPEN,
+        )
+        data = request.model_dump(by_alias=True, exclude_none=True)
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert data["openCloseIndicator"] == "OPEN"
 
     @pytest.mark.parametrize("request_class", [OrderRequest, PreflightRequest])
     def test_amount_only(
@@ -534,3 +550,89 @@ class TestCancelAndReplaceRequestValidation:
         )
         assert req.order_id == _ORDER_UUID
         assert req.request_id == _REQUEST_UUID
+
+
+class TestValidateOrderFlag:
+    """Tests for the optional `validate_order` flag on preflight requests."""
+
+    def _base_single_leg(self, **overrides: object) -> dict:
+        base: dict = {
+            "instrument": OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            "order_side": OrderSide.BUY,
+            "order_type": OrderType.LIMIT,
+            "expiration": OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            "quantity": Decimal("10"),
+            "limit_price": Decimal("150.00"),
+        }
+        base.update(overrides)
+        return base
+
+    def test_validate_order_omitted_is_excluded_from_payload(self) -> None:
+        """When validate_order is not set, it must be excluded from the payload."""
+        req = PreflightRequest(**self._base_single_leg())
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert "validateOrder" not in data
+        assert req.validate_order is None
+
+    def test_validate_order_true_serialized(self) -> None:
+        req = PreflightRequest(**self._base_single_leg(validate_order=True))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["validateOrder"] is True
+
+    def test_validate_order_false_serialized(self) -> None:
+        """False is meaningful and must be preserved (exclude_none only drops None)."""
+        req = PreflightRequest(**self._base_single_leg(validate_order=False))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["validateOrder"] is False
+
+    def test_validate_order_accepts_camel_case_alias(self) -> None:
+        base = self._base_single_leg()
+        req = PreflightRequest(**base, validateOrder=False)  # type: ignore[arg-type]
+        assert req.validate_order is False
+
+    def _base_multileg_legs(self) -> list:
+        from public_api_sdk.models.option import (
+            LegInstrument,
+            LegInstrumentType,
+            OrderLegRequest,
+        )
+
+        return [
+            OrderLegRequest(
+                instrument=LegInstrument(
+                    symbol=f"AAPL260116C0015{i}000", type=LegInstrumentType.OPTION
+                ),
+                side=OrderSide.BUY if i == 0 else OrderSide.SELL,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            )
+            for i in range(2)
+        ]
+
+    def test_multileg_validate_order_serialized(self) -> None:
+        from public_api_sdk.models.option import PreflightMultiLegRequest
+
+        req = PreflightMultiLegRequest(
+            order_type=OrderType.LIMIT,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            quantity=1,
+            limit_price=Decimal("1.50"),
+            legs=self._base_multileg_legs(),
+            validate_order=False,
+        )
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["validateOrder"] is False
+
+    def test_multileg_validate_order_absent_when_omitted(self) -> None:
+        from public_api_sdk.models.option import PreflightMultiLegRequest
+
+        req = PreflightMultiLegRequest(
+            order_type=OrderType.LIMIT,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            quantity=1,
+            limit_price=Decimal("1.50"),
+            legs=self._base_multileg_legs(),
+        )
+        assert req.validate_order is None
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert "validateOrder" not in data
