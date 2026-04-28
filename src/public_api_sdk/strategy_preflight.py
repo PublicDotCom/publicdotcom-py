@@ -23,10 +23,12 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Callable, Optional, Tuple
+from uuid import uuid4
 
 from .models.option import (
     LegInstrument,
     LegInstrumentType,
+    MultilegOrderRequest,
     OrderLegRequest,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
@@ -435,6 +437,65 @@ def _build_two_leg_spread_request(
             ),
         ],
         validate_order=validate_order,
+    )
+
+
+def _build_two_leg_spread_order_request(
+    sell_contract_osi: str,
+    buy_contract_osi: str,
+    kind: _SpreadKind,
+    quantity: int,
+    limit_price: Decimal,
+    time_in_force: TimeInForce,
+    expiration_time: Optional[datetime],
+    order_id: Optional[str],
+) -> MultilegOrderRequest:
+    """Validate the two legs and construct a ``MultilegOrderRequest``.
+
+    Mirrors :func:`_build_two_leg_spread_request`, but returns the request
+    shape used for live multi-leg order placement. If ``order_id`` is omitted,
+    a UUIDv4 idempotency key is generated for the caller.
+    """
+    if limit_price <= 0:
+        raise ValueError(
+            f"limit_price must be a positive value; the SDK signs it for "
+            f"credit vs. debit spreads automatically. Got {limit_price}."
+        )
+
+    _validate_two_leg_spread(sell_contract_osi, buy_contract_osi, kind)
+
+    is_credit = kind in (_SpreadKind.CALL_CREDIT, _SpreadKind.PUT_CREDIT)
+    signed_limit_price = -limit_price if is_credit else limit_price
+
+    return MultilegOrderRequest(
+        order_id=order_id or str(uuid4()),
+        type=OrderType.LIMIT,
+        expiration=OrderExpirationRequest(
+            time_in_force=time_in_force,
+            expiration_time=expiration_time,
+        ),
+        quantity=quantity,
+        limit_price=signed_limit_price,
+        legs=[
+            OrderLegRequest(
+                instrument=LegInstrument(
+                    symbol=sell_contract_osi.strip().upper(),
+                    type=LegInstrumentType.OPTION,
+                ),
+                side=OrderSide.SELL,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            ),
+            OrderLegRequest(
+                instrument=LegInstrument(
+                    symbol=buy_contract_osi.strip().upper(),
+                    type=LegInstrumentType.OPTION,
+                ),
+                side=OrderSide.BUY,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            ),
+        ],
     )
 
 

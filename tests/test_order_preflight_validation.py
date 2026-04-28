@@ -121,6 +121,21 @@ class TestSharedValidation:
         assert request.amount is None
 
     @pytest.mark.parametrize("request_class", [OrderRequest, PreflightRequest])
+    def test_equity_short_intent_open_close_indicator(
+        self, request_class: Union[Type[OrderRequest], Type[PreflightRequest]]
+    ) -> None:
+        """Equity short-sale requests may carry open/close intent."""
+        request = self._create_request(
+            request_class,
+            order_side=OrderSide.SELL,
+            quantity=100,
+            open_close_indicator=OpenCloseIndicator.OPEN,
+        )
+        data = request.model_dump(by_alias=True, exclude_none=True)
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert data["openCloseIndicator"] == "OPEN"
+
+    @pytest.mark.parametrize("request_class", [OrderRequest, PreflightRequest])
     def test_amount_only(
         self, request_class: Union[Type[OrderRequest], Type[PreflightRequest]]
     ) -> None:

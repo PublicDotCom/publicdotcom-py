@@ -52,6 +52,7 @@ env.bak/
 venv.bak/
 
 .tmp
+examples/example_manual.py
 
 .vscode/
 .idea/

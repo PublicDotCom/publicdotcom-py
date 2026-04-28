@@ -109,6 +109,17 @@ def main() -> None:
         )
         print(f"Preflight response: {preflight_response}\n\n")
 
+        print("Performing short-sale preflight calculation...")
+        short_preflight = public_api_client.preflight_short_order(
+            symbol="AAPL",
+            quantity=Decimal("1"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("226.78"),
+            equity_market_session=EquityMarketSession.CORE,
+            account_id=account_id,
+        )
+        print(f"Short preflight response: {short_preflight}\n\n")
+
         # place a equity order
         if DRY_RUN:
             print(

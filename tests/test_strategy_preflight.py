@@ -3,11 +3,13 @@
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID
 
 import pytest
 
 from public_api_sdk.models.option import (
     LegInstrumentType,
+    MultilegOrderRequest,
     OpenCloseIndicator,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
@@ -22,6 +24,7 @@ from public_api_sdk.strategy_preflight import (
     StrategyPreflight,
     _SpreadKind,
     _build_osi,
+    _build_two_leg_spread_order_request,
     _build_two_leg_spread_request,
     _make_credit_spread_request,
     _make_debit_spread_request,
@@ -29,6 +32,8 @@ from public_api_sdk.strategy_preflight import (
     _validate_two_leg_spread,
 )
 from public_api_sdk.async_strategy_preflight import AsyncStrategyPreflight
+
+VALID_ORDER_ID = "550e8400-e29b-41d4-a716-446655440000"
 
 
 # ---------------------------------------------------------------------------
@@ -862,6 +867,70 @@ class TestBuildTwoLegSpreadRequest:
 
 
 # ---------------------------------------------------------------------------
+# _build_two_leg_spread_order_request
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTwoLegSpreadOrderRequest:
+    def test_credit_spread_negates_limit_price(self) -> None:
+        req = _build_two_leg_spread_order_request(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            kind=_SpreadKind.CALL_CREDIT,
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+            order_id=VALID_ORDER_ID,
+        )
+        assert isinstance(req, MultilegOrderRequest)
+        assert req.order_id == VALID_ORDER_ID
+        assert req.type == OrderType.LIMIT
+        assert req.limit_price == Decimal("-2.50")
+        assert req.legs[0].side == OrderSide.SELL
+        assert req.legs[1].side == OrderSide.BUY
+
+    def test_debit_spread_keeps_positive_limit_price(self) -> None:
+        req = _build_two_leg_spread_order_request(
+            sell_contract_osi="AAPL251219C00200000",
+            buy_contract_osi="AAPL251219C00195000",
+            kind=_SpreadKind.CALL_DEBIT,
+            quantity=1,
+            limit_price=Decimal("3.00"),
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+            order_id=VALID_ORDER_ID,
+        )
+        assert req.limit_price == Decimal("3.00")
+
+    def test_generates_order_id_when_omitted(self) -> None:
+        req = _build_two_leg_spread_order_request(
+            sell_contract_osi="AAPL251219P00185000",
+            buy_contract_osi="AAPL251219P00180000",
+            kind=_SpreadKind.PUT_CREDIT,
+            quantity=1,
+            limit_price=Decimal("1.20"),
+            time_in_force=TimeInForce.DAY,
+            expiration_time=None,
+            order_id=None,
+        )
+        assert UUID(req.order_id).version == 4
+
+    def test_invalid_strike_order_raises(self) -> None:
+        with pytest.raises(ValueError, match="sell_strike < buy_strike"):
+            _build_two_leg_spread_order_request(
+                sell_contract_osi="AAPL251219C00195000",
+                buy_contract_osi="AAPL251219C00190000",
+                kind=_SpreadKind.CALL_CREDIT,
+                quantity=1,
+                limit_price=Decimal("2.50"),
+                time_in_force=TimeInForce.DAY,
+                expiration_time=None,
+                order_id=VALID_ORDER_ID,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Client.preflight_*_spread integration — sync
 # ---------------------------------------------------------------------------
 
@@ -1003,6 +1072,93 @@ class TestSpreadPreflightClientSync:
 
 
 # ---------------------------------------------------------------------------
+# Client.place_*_spread integration — sync
+# ---------------------------------------------------------------------------
+
+
+class TestSpreadPlacementClientSync:
+    def setup_method(self) -> None:
+        from public_api_sdk.public_api_client import PublicApiClient
+
+        self.mock_order = MagicMock()
+        self.client = MagicMock()
+        self.client.place_multileg_order = MagicMock(return_value=self.mock_order)
+        for name in (
+            "place_call_credit_spread",
+            "place_call_debit_spread",
+            "place_put_credit_spread",
+            "place_put_debit_spread",
+        ):
+            setattr(
+                self.client,
+                name,
+                getattr(PublicApiClient, name).__get__(self.client),
+            )
+
+    def test_call_credit_spread_dispatches(self) -> None:
+        result = self.client.place_call_credit_spread(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            order_id=VALID_ORDER_ID,
+        )
+        assert result is self.mock_order
+        request, account_id = self.client.place_multileg_order.call_args[0]
+        assert isinstance(request, MultilegOrderRequest)
+        assert request.order_id == VALID_ORDER_ID
+        assert request.limit_price == Decimal("-2.50")
+        assert request.legs[0].instrument.symbol == "AAPL251219C00190000"
+        assert account_id is None
+
+    def test_call_debit_spread_keeps_positive_limit_price(self) -> None:
+        self.client.place_call_debit_spread(
+            sell_contract_osi="AAPL251219C00200000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("3.00"),
+            order_id=VALID_ORDER_ID,
+        )
+        request, _ = self.client.place_multileg_order.call_args[0]
+        assert request.limit_price == Decimal("3.00")
+
+    def test_put_credit_spread_negates(self) -> None:
+        self.client.place_put_credit_spread(
+            sell_contract_osi="AAPL251219P00185000",
+            buy_contract_osi="AAPL251219P00180000",
+            quantity=1,
+            limit_price=Decimal("1.20"),
+            order_id=VALID_ORDER_ID,
+        )
+        request, _ = self.client.place_multileg_order.call_args[0]
+        assert request.limit_price == Decimal("-1.20")
+
+    def test_auto_order_id_and_account_id(self) -> None:
+        self.client.place_put_debit_spread(
+            sell_contract_osi="AAPL251219P00180000",
+            buy_contract_osi="AAPL251219P00185000",
+            quantity=1,
+            limit_price=Decimal("2.10"),
+            account_id="ACC123",
+        )
+        request, account_id = self.client.place_multileg_order.call_args[0]
+        assert UUID(request.order_id).version == 4
+        assert request.limit_price == Decimal("2.10")
+        assert account_id == "ACC123"
+
+    def test_invalid_strike_order_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="sell_strike < buy_strike"):
+            self.client.place_call_credit_spread(
+                sell_contract_osi="AAPL251219C00195000",
+                buy_contract_osi="AAPL251219C00190000",
+                quantity=1,
+                limit_price=Decimal("2.50"),
+                order_id=VALID_ORDER_ID,
+            )
+        self.client.place_multileg_order.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Client.preflight_*_spread integration — async
 # ---------------------------------------------------------------------------
 
@@ -1060,6 +1216,88 @@ class TestSpreadPreflightClientAsync:
         assert account_id == "ACC123"
 
     @pytest.mark.asyncio
+    async def test_call_debit_spread_async(self) -> None:
+        await self.client.preflight_call_debit_spread(
+            sell_contract_osi="AAPL251219C00200000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("3.00"),
+        )
+        request, _ = (
+            self.client.perform_multi_leg_preflight_calculation.call_args[0]
+        )
+        assert request.limit_price == Decimal("3.00")
+
+    @pytest.mark.asyncio
+    async def test_put_credit_spread_async(self) -> None:
+        await self.client.preflight_put_credit_spread(
+            sell_contract_osi="AAPL251219P00185000",
+            buy_contract_osi="AAPL251219P00180000",
+            quantity=1,
+            limit_price=Decimal("1.20"),
+        )
+        request, _ = (
+            self.client.perform_multi_leg_preflight_calculation.call_args[0]
+        )
+        assert request.limit_price == Decimal("-1.20")
+
+    @pytest.mark.asyncio
+    async def test_account_id_passes_through_async(self) -> None:
+        await self.client.preflight_call_credit_spread(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            account_id="ACC456",
+        )
+        _, account_id = (
+            self.client.perform_multi_leg_preflight_calculation.call_args[0]
+        )
+        assert account_id == "ACC456"
+
+    @pytest.mark.asyncio
+    async def test_validate_order_passes_through_async(self) -> None:
+        await self.client.preflight_call_credit_spread(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            validate_order=False,
+        )
+        request, _ = (
+            self.client.perform_multi_leg_preflight_calculation.call_args[0]
+        )
+        assert request.validate_order is False
+
+    @pytest.mark.asyncio
+    async def test_mismatched_underlying_raises_async(self) -> None:
+        with pytest.raises(ValueError, match="same underlying ticker"):
+            await self.client.preflight_call_credit_spread(
+                sell_contract_osi="AAPL251219C00190000",
+                buy_contract_osi="MSFT251219C00195000",
+                quantity=1,
+                limit_price=Decimal("2.50"),
+            )
+        self.client.perform_multi_leg_preflight_calculation.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_gtd_with_expiration_time_async(self) -> None:
+        exp = datetime.now(timezone.utc) + timedelta(days=30)
+        await self.client.preflight_call_credit_spread(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            time_in_force=TimeInForce.GTD,
+            expiration_time=exp,
+        )
+        request, _ = (
+            self.client.perform_multi_leg_preflight_calculation.call_args[0]
+        )
+        assert request.expiration.time_in_force == TimeInForce.GTD
+        assert request.expiration.expiration_time == exp
+
+    @pytest.mark.asyncio
     async def test_invalid_strike_order_raises_locally(self) -> None:
         with pytest.raises(ValueError, match="buy_strike < sell_strike"):
             await self.client.preflight_call_debit_spread(
@@ -1069,3 +1307,93 @@ class TestSpreadPreflightClientAsync:
                 limit_price=Decimal("3.00"),
             )
         self.client.perform_multi_leg_preflight_calculation.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Client.place_*_spread integration — async
+# ---------------------------------------------------------------------------
+
+
+class TestSpreadPlacementClientAsync:
+    def setup_method(self) -> None:
+        from public_api_sdk.async_public_api_client import AsyncPublicApiClient
+
+        self.mock_order = MagicMock()
+        self.client = MagicMock()
+        self.client.place_multileg_order = AsyncMock(return_value=self.mock_order)
+        for name in (
+            "place_call_credit_spread",
+            "place_call_debit_spread",
+            "place_put_credit_spread",
+            "place_put_debit_spread",
+        ):
+            setattr(
+                self.client,
+                name,
+                getattr(AsyncPublicApiClient, name).__get__(self.client),
+            )
+
+    @pytest.mark.asyncio
+    async def test_call_credit_spread_async(self) -> None:
+        result = await self.client.place_call_credit_spread(
+            sell_contract_osi="AAPL251219C00190000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("2.50"),
+            order_id=VALID_ORDER_ID,
+        )
+        assert result is self.mock_order
+        request, _ = self.client.place_multileg_order.call_args[0]
+        assert isinstance(request, MultilegOrderRequest)
+        assert request.order_id == VALID_ORDER_ID
+        assert request.limit_price == Decimal("-2.50")
+
+    @pytest.mark.asyncio
+    async def test_put_debit_spread_async(self) -> None:
+        await self.client.place_put_debit_spread(
+            sell_contract_osi="AAPL251219P00180000",
+            buy_contract_osi="AAPL251219P00185000",
+            quantity=2,
+            limit_price=Decimal("2.10"),
+            account_id="ACC123",
+        )
+        request, account_id = self.client.place_multileg_order.call_args[0]
+        assert UUID(request.order_id).version == 4
+        assert request.limit_price == Decimal("2.10")
+        assert account_id == "ACC123"
+
+    @pytest.mark.asyncio
+    async def test_call_debit_spread_async(self) -> None:
+        await self.client.place_call_debit_spread(
+            sell_contract_osi="AAPL251219C00200000",
+            buy_contract_osi="AAPL251219C00195000",
+            quantity=1,
+            limit_price=Decimal("3.00"),
+            order_id=VALID_ORDER_ID,
+        )
+        request, _ = self.client.place_multileg_order.call_args[0]
+        assert request.limit_price == Decimal("3.00")
+
+    @pytest.mark.asyncio
+    async def test_put_credit_spread_async(self) -> None:
+        await self.client.place_put_credit_spread(
+            sell_contract_osi="AAPL251219P00185000",
+            buy_contract_osi="AAPL251219P00180000",
+            quantity=1,
+            limit_price=Decimal("1.20"),
+            order_id=VALID_ORDER_ID,
+        )
+        request, _ = self.client.place_multileg_order.call_args[0]
+        assert request.limit_price == Decimal("-1.20")
+
+    @pytest.mark.asyncio
+    async def test_invalid_strike_order_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="buy_strike < sell_strike"):
+            await self.client.place_call_debit_spread(
+                sell_contract_osi="AAPL251219C00195000",
+                buy_contract_osi="AAPL251219C00200000",
+                quantity=1,
+                limit_price=Decimal("3.00"),
+                order_id=VALID_ORDER_ID,
+            )
+        self.client.place_multileg_order.assert_not_called()

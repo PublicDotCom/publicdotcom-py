@@ -1,6 +1,5 @@
 import os
 from decimal import Decimal
-import uuid
 
 from dotenv import load_dotenv
 
@@ -20,7 +19,6 @@ from public_api_sdk import (
     LegInstrument,
     LegInstrumentType,
     OrderLegRequest,
-    MultilegOrderRequest,
     OpenCloseIndicator,
 )
 
@@ -126,35 +124,13 @@ def main() -> None:
                 "          Set DRY_RUN=false in your environment to enable live trading.\n"
             )
         else:
-            print("Placing a multi-leg order...")
-            new_order = public_api_client.place_multileg_order(
-                MultilegOrderRequest(
-                    order_id=str(uuid.uuid4()),
-                    quantity=1,
-                    type=OrderType.LIMIT,
-                    limit_price=Decimal("0.50"),
-                    expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
-                    legs=[
-                        OrderLegRequest(
-                            instrument=LegInstrument(
-                                symbol=leg1_symbol,
-                                type=LegInstrumentType.OPTION,
-                            ),
-                            side=OrderSide.BUY,
-                            open_close_indicator=OpenCloseIndicator.OPEN,
-                            ratio_quantity=1,
-                        ),
-                        OrderLegRequest(
-                            instrument=LegInstrument(
-                                symbol=leg2_symbol,
-                                type=LegInstrumentType.OPTION,
-                            ),
-                            side=OrderSide.SELL,
-                            open_close_indicator=OpenCloseIndicator.OPEN,
-                            ratio_quantity=1,
-                        ),
-                    ],
-                ),
+            print("Placing a bull call spread order with the convenience helper...")
+            new_order = public_api_client.place_call_debit_spread(
+                sell_contract_osi=leg2_symbol,
+                buy_contract_osi=leg1_symbol,
+                quantity=1,
+                limit_price=Decimal("0.50"),
+                time_in_force=TimeInForce.DAY,
             )
             print(f"Order placed: {new_order.order_id}\n\n")
 

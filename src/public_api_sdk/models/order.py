@@ -224,7 +224,10 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description=(
+            "Indicates OPEN/CLOSE intent for options and equity short-sale "
+            "orders."
+        ),
     )
     equity_market_session: Optional[EquityMarketSession] = Field(
         None,
@@ -520,7 +523,10 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
         serialization_alias="openCloseIndicator",
-        description="Used for options only. Indicates if this is BUY to OPEN/CLOSE",
+        description=(
+            "Indicates OPEN/CLOSE intent for options and equity short-sale "
+            "orders."
+        ),
     )
     equity_market_session: Optional[EquityMarketSession] = Field(
         None,

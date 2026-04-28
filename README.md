@@ -437,6 +437,26 @@ if preflight_response.short_selling:
         print(f"  HTB rate: {ss.hard_to_borrow_percentage_rate}%")
 ```
 
+##### Short-Sale Preflight
+
+For quantity-based equity short-sale estimates, use `preflight_short_order()`. The SDK sets the API-required short intent for you: `orderSide=SELL` and `openCloseIndicator=OPEN`. Notional short orders are not supported.
+
+```python
+short_preflight = client.preflight_short_order(
+    symbol="AAPL",
+    quantity=Decimal("10"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.CORE,
+)
+
+if short_preflight.short_selling:
+    ss = short_preflight.short_selling
+    print(f"Shorting: {ss.availability.value}, uptick rule: {ss.uptick_rule.value}")
+```
+
+The same helper exists on `AsyncPublicApiClient`; just `await` it.
+
 > Pass `validate_order=False` on the request to run a hypothetical "what-if" calculation that **doesn't** check the order against your current account state (buying power, permissions, etc.). The server defaults to `true`. The same flag is accepted on `PreflightMultiLegRequest`.
 
 ```python
@@ -513,7 +533,9 @@ print("\n" + "="*70)
 
 ##### Vertical Spread Preflight (OSI-direct)
 
-For each of the four common vertical spread strategies the SDK exposes a dedicated preflight method on the client. Pass the OSI symbols of the two contracts (e.g. as obtained from `get_option_chain`), the contract count, and the limit price — the SDK validates that both legs share an underlying and expiration, that the strikes are ordered correctly for the strategy, and signs the limit price for credit vs. debit before sending.
+For each of the four common vertical spread strategies the SDK exposes a dedicated preflight method on the client. Pass the OSI symbols of the two contracts, the contract count, and the limit price — the SDK validates that both legs share an underlying and expiration, that the strikes are ordered correctly for the strategy, and signs the limit price for credit vs. debit before sending.
+
+OSI symbols can be obtained directly from `get_option_chain()` (each `OptionContract` has a `symbol` field in OSI format), or built manually. The format is: symbol padded to 6 characters + `YYMMDD` + `C`/`P` + 8-digit strike (3 implied decimal places). For example, AAPL $190 call expiring 2025-12-19 → `AAPL251219C00190000`.
 
 ```python
 from decimal import Decimal
@@ -570,6 +592,54 @@ All four methods accept the same optional kwargs:
 > - **PUT debit** (Bear): `buy_strike > sell_strike`
 >
 > The SDK also rejects pairs that don't share the same underlying or expiration date — a `ValueError` is raised before any HTTP request is made.
+
+The same four methods exist on `AsyncPublicApiClient`; just `await` them.
+
+##### Vertical Spread Order Placement (OSI-direct)
+
+The same OSI-direct convenience shape is available for submitting live multi-leg spread orders. These methods build a `MultilegOrderRequest`, validate the legs locally, sign credit/debit limit prices the same way as preflight, and call `place_multileg_order()`.
+
+```python
+from decimal import Decimal
+
+# Bear Call Spread — submits a live order.
+# order_id is optional; pass one when you want explicit idempotency control.
+new_order = client.place_call_credit_spread(
+    sell_contract_osi="AAPL251219C00190000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("2.50"),
+)
+print(f"Order placed: {new_order.order_id}")
+
+new_order = client.place_call_debit_spread(
+    sell_contract_osi="AAPL251219C00200000",
+    buy_contract_osi="AAPL251219C00195000",
+    quantity=1,
+    limit_price=Decimal("3.00"),
+)
+
+new_order = client.place_put_credit_spread(
+    sell_contract_osi="AAPL251219P00185000",
+    buy_contract_osi="AAPL251219P00180000",
+    quantity=1,
+    limit_price=Decimal("1.20"),
+)
+
+new_order = client.place_put_debit_spread(
+    sell_contract_osi="AAPL251219P00180000",
+    buy_contract_osi="AAPL251219P00185000",
+    quantity=1,
+    limit_price=Decimal("2.10"),
+)
+```
+
+All four placement methods accept the same optional kwargs:
+
+- `order_id` — optional UUID idempotency key; generated automatically if omitted
+- `time_in_force` — `TimeInForce.DAY` (default) or `TimeInForce.GTD`
+- `expiration_time` — required when `time_in_force=TimeInForce.GTD`
+- `account_id` — overrides `default_account_number`
 
 The same four methods exist on `AsyncPublicApiClient`; just `await` them.
 
@@ -675,6 +745,24 @@ order_request = OrderRequest(
 order_response = client.place_order(order_request)
 print(f"Order placed with ID: {order_response.order_id}")
 ```
+
+##### Place Short Order
+
+Submit a quantity-based equity short-sale order. The SDK sets the API-required short intent for you: `orderSide=SELL` and `openCloseIndicator=OPEN`. Notional short orders are not supported. Use `preflight_short_order()` first when you want borrow, uptick-rule, and margin diagnostics before sending the live order.
+
+```python
+short_order = client.place_short_order(
+    symbol="AAPL",
+    quantity=Decimal("10"),
+    order_type=OrderType.LIMIT,
+    limit_price=Decimal("227.50"),
+    equity_market_session=EquityMarketSession.CORE,
+)
+
+print(f"Short order placed: {short_order.order_id}")
+```
+
+Pass `order_id` when you want explicit idempotency control; otherwise the SDK generates a UUIDv4. The same helper exists on `AsyncPublicApiClient`; just `await` it.
 
 ##### Place Multi-Leg Order
 

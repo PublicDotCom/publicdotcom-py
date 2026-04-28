@@ -8,6 +8,7 @@ instances remain on the client object and can be configured per-test.
 from decimal import Decimal
 from typing import Optional
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 
@@ -25,6 +26,8 @@ from public_api_sdk.models.new_order import NewOrder
 from public_api_sdk.models.option import GreeksResponse
 from public_api_sdk.models.order import (
     CancelAndReplaceRequest,
+    EquityMarketSession,
+    OpenCloseIndicator,
     Order,
     OrderExpirationRequest,
     OrderRequest,
@@ -32,6 +35,7 @@ from public_api_sdk.models.order import (
     OrderStatus,
     OrderType,
     PreflightRequest,
+    PreflightResponse,
     TimeInForce,
 )
 from public_api_sdk.models.portfolio import Portfolio
@@ -453,6 +457,48 @@ class TestPerformPreflightCalculation:
         assert isinstance(result, PreflightResponse)
 
 
+class TestPreflightShortOrder:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.mock_response = Mock(spec=PreflightResponse)
+        self.client.perform_preflight_calculation = Mock(
+            return_value=self.mock_response
+        )
+
+    def test_builds_quantity_only_sell_to_open_request(self) -> None:
+        result = self.client.preflight_short_order(
+            symbol="aapl",
+            quantity=Decimal("10"),
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            validate_order=False,
+            account_id="ACC456",
+        )
+
+        assert result is self.mock_response
+        request, account_id = self.client.perform_preflight_calculation.call_args[0]
+        assert request.instrument.symbol == "AAPL"
+        assert request.instrument.type == InstrumentType.EQUITY
+        assert request.order_side == OrderSide.SELL
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert request.quantity == Decimal("10")
+        assert request.amount is None
+        assert request.limit_price == Decimal("150.00")
+        assert request.equity_market_session == EquityMarketSession.CORE
+        assert request.validate_order is False
+        assert account_id == "ACC456"
+
+    def test_invalid_market_limit_price_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="`limit_price` can only be set"):
+            self.client.preflight_short_order(
+                symbol="AAPL",
+                quantity=Decimal("10"),
+                limit_price=Decimal("150.00"),
+            )
+        self.client.perform_preflight_calculation.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # place_order / place_multileg_order
 # ---------------------------------------------------------------------------
@@ -496,6 +542,55 @@ class TestPlaceOrder:
         self.client.place_order(self._make_request(), account_id="OTHER_ACC")
         url = self.client.api_client.post.call_args[0][0]
         assert "/OTHER_ACC/order" in url
+
+
+class TestPlaceShortOrder:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+        self.mock_order = Mock(spec=NewOrder)
+        self.client.place_order = Mock(return_value=self.mock_order)
+
+    def test_builds_quantity_only_sell_to_open_order(self) -> None:
+        result = self.client.place_short_order(
+            symbol="aapl",
+            quantity=Decimal("10"),
+            order_id=_VALID_UUID,
+            order_type=OrderType.LIMIT,
+            limit_price=Decimal("150.00"),
+            equity_market_session=EquityMarketSession.CORE,
+            account_id="ACC456",
+        )
+
+        assert result is self.mock_order
+        request, account_id = self.client.place_order.call_args[0]
+        assert request.order_id == _VALID_UUID
+        assert request.instrument.symbol == "AAPL"
+        assert request.instrument.type == InstrumentType.EQUITY
+        assert request.order_side == OrderSide.SELL
+        assert request.open_close_indicator == OpenCloseIndicator.OPEN
+        assert request.quantity == Decimal("10")
+        assert request.amount is None
+        assert request.limit_price == Decimal("150.00")
+        assert request.equity_market_session == EquityMarketSession.CORE
+        assert account_id == "ACC456"
+
+    def test_generates_order_id_when_omitted(self) -> None:
+        self.client.place_short_order(
+            symbol="AAPL",
+            quantity=Decimal("1"),
+        )
+
+        request, _ = self.client.place_order.call_args[0]
+        assert UUID(request.order_id).version == 4
+
+    def test_invalid_market_limit_price_raises_before_dispatch(self) -> None:
+        with pytest.raises(ValueError, match="`limit_price` can only be set"):
+            self.client.place_short_order(
+                symbol="AAPL",
+                quantity=Decimal("10"),
+                limit_price=Decimal("150.00"),
+            )
+        self.client.place_order.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
