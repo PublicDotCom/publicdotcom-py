@@ -28,6 +28,8 @@ class AsyncApiClient:
         timeout: int = 30,
         max_retries: int = 3,
         backoff_factor: float = 0.3,
+        *,
+        http_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         """Initialize the async HTTP client.
 
@@ -36,22 +38,29 @@ class AsyncApiClient:
             timeout: Request timeout in seconds
             max_retries: Maximum number of retries for failed requests
             backoff_factor: Backoff factor for retry delays
+            http_client: Optional pre-configured httpx.AsyncClient. When
+                provided, the SDK uses it for all requests and will not close
+                it on aclose() — the caller owns the lifecycle. When omitted,
+                the SDK constructs and owns its own client.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._max_retries = max_retries
         self._backoff_factor = backoff_factor
         self._auth_header: Optional[str] = None
+        self._owns_http_client = http_client is None
 
-        version = self._get_version()
-        self._client = httpx.AsyncClient(
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": f"public-python-api-sdk-{version}",
-                "X-App-Version": f"public-python-api-sdk-{version}",
-            },
-            timeout=float(timeout),
-        )
+        if http_client is None:
+            version = self._get_version()
+            http_client = httpx.AsyncClient(
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": f"public-python-api-sdk-{version}",
+                    "X-App-Version": f"public-python-api-sdk-{version}",
+                },
+                timeout=float(timeout),
+            )
+        self._client = http_client
 
     def _get_version(self) -> str:
         try:
@@ -200,5 +209,10 @@ class AsyncApiClient:
         )
 
     async def aclose(self) -> None:
-        """Close the underlying HTTP client and release connections."""
-        await self._client.aclose()
+        """Close the underlying HTTP client and release connections.
+
+        Only closes the httpx client when the SDK owns it. Injected clients
+        are left open — the caller is responsible for their lifecycle.
+        """
+        if self._owns_http_client:
+            await self._client.aclose()
