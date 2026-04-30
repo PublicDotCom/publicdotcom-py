@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING
 
+import httpx
+
 from .async_api_client import AsyncApiClient
 from .async_auth_provider import AsyncAuthManager
 from .async_order_subscription_manager import AsyncOrderSubscriptionManager
@@ -96,16 +98,23 @@ class AsyncPublicApiClient:
     Args:
         auth_config: Authentication configuration (ApiKeyAuthConfig or OAuthAuthConfig)
         config: Optional client configuration (base URL, default account number)
+        http_client: Optional pre-configured httpx.AsyncClient. When provided,
+            the SDK uses it for all requests and will not close it on
+            ``close()`` — the caller owns the lifecycle.
     """
 
     def __init__(
         self,
         auth_config: "AsyncAuthConfig",
         config: AsyncPublicApiClientConfiguration = AsyncPublicApiClientConfiguration.DEFAULT,
+        *,
+        http_client: Optional[httpx.AsyncClient] = None,
     ) -> None:
         self.config = config
 
-        self.api_client = AsyncApiClient(base_url=config.get_base_url())
+        self.api_client = AsyncApiClient(
+            base_url=config.get_base_url(), http_client=http_client
+        )
 
         async_provider = auth_config.create_async_provider(self.api_client)
         self.auth_manager = AsyncAuthManager(auth_provider=async_provider)
