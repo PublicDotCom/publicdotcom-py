@@ -124,6 +124,23 @@ class AsyncApiClient:
         else:
             raise APIError(error_message, response.status_code, response_data)
 
+    def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        """Return the number of seconds to sleep before the next retry attempt.
+
+        For 429 responses the server's Retry-After header takes precedence,
+        capped at 60 s to guard against misbehaving servers. All other transient
+        errors (5xx) and malformed / absent headers fall back to exponential
+        backoff, also capped at 60 s.
+        """
+        if response.status_code == 429:
+            header = response.headers.get("Retry-After")
+            if header is not None:
+                try:
+                    return float(min(int(header), 60))
+                except (TypeError, ValueError):
+                    pass
+        return min(self._backoff_factor * (2 ** (attempt - 1)), 60.0)
+
     async def _request_with_retry(
         self,
         method: str,
@@ -148,7 +165,7 @@ class AsyncApiClient:
             )
             if should_retry_status:
                 retries += 1
-                await asyncio.sleep(self._backoff_factor * (2 ** (retries - 1)))
+                await asyncio.sleep(self._retry_delay(response, retries))
                 continue
 
             return self._handle_response(response)
