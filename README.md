@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.12-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.13-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -320,6 +320,53 @@ instruments = client.get_all_instruments(
 ```
 
 ### Options Trading
+
+#### Get Historic Bar Data
+
+Fetch OHLCV bar data for any symbol over a standard time period. The response is split into pre-market, regular-market, and after-hours sessions, each containing a list of `Bar` objects.
+
+```python
+from public_api_sdk import BarPeriod
+
+bars = client.get_bars("AAPL", BarPeriod.YEAR)
+
+print(f"Total expected bars: {bars.total_expected_bars}")
+for bar in bars.regular_market.bars:
+    print(f"  {bar.timestamp}  O={bar.open}  H={bar.high}  L={bar.low}  C={bar.close}  V={bar.volume}")
+```
+
+Available periods: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `HALF_YEAR`, `YEAR`, `FIVE_YEARS`, `YTD`, `SINCE_PURCHASE`.
+
+##### Aggregation override
+
+Override the bar size by passing an `aggregation`:
+
+```python
+from public_api_sdk import BarAggregation
+
+# Today's intraday bars at 5-minute resolution
+bars = client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
+
+# Past week at 30-minute resolution
+bars = client.get_bars("AAPL", BarPeriod.WEEK, aggregation=BarAggregation.THIRTY_MINUTES)
+```
+
+Available aggregations: `ONE_MINUTE`, `FIVE_MINUTES`, `TEN_MINUTES`, `FIFTEEN_MINUTES`, `THIRTY_MINUTES`, `ONE_HOUR`, `ONE_DAY`, `ONE_WEEK`, `ONE_MONTH`, `THREE_MONTHS`, `SIX_MONTHS`, `ONE_YEAR`.
+
+##### Performance since purchase
+
+Use `BarPeriod.SINCE_PURCHASE` with a `purchase_date` to chart performance from a specific entry point:
+
+```python
+bars = client.get_bars(
+    "AAPL",
+    BarPeriod.SINCE_PURCHASE,
+    purchase_date="2024-01-02",  # YYYY-MM-DD
+)
+
+if bars.total_gain_loss is not None:
+    print(f"Gain/loss since purchase: ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
+```
 
 #### Get Option Expirations
 
@@ -1080,6 +1127,28 @@ instruments = await client.get_all_instruments(
 )
 ```
 
+#### Historic Bar Data (Async)
+
+`get_bars` is a coroutine on the async client — `await` it directly, or use `asyncio.gather` to fetch multiple symbols concurrently:
+
+```python
+from public_api_sdk import BarAggregation, BarPeriod
+
+# Single symbol
+bars = await client.get_bars("AAPL", BarPeriod.YEAR)
+
+# With aggregation override
+bars = await client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
+
+# Multiple symbols concurrently
+aapl_bars, msft_bars = await asyncio.gather(
+    client.get_bars("AAPL", BarPeriod.YEAR),
+    client.get_bars("MSFT", BarPeriod.YEAR),
+)
+for bar in aapl_bars.regular_market.bars:
+    print(f"  {bar.timestamp}  O={bar.open}  C={bar.close}  V={bar.volume}")
+```
+
 ### Order Placement and Tracking
 
 `place_order` and `place_multileg_order` return an `AsyncNewOrder`, which exposes async helpers for polling and subscribing to status changes.
@@ -1357,6 +1426,14 @@ See `example_strategy_preflight.py` for a self-contained example that:
 - Fetches a live quote to anchor strikes to the current market price
 - Resolves the nearest option expiration automatically
 - Runs all four spread types (CALL/PUT × credit/debit) back-to-back
+
+### Historic Bar Data Example
+
+See `example_historic_data.py` for a runnable example that demonstrates:
+- Fetching a full year of daily bars
+- Intraday bars with an aggregation override (5-minute, 30-minute)
+- Performance-since-purchase using `BarPeriod.SINCE_PURCHASE`
+- Fetching multiple symbols concurrently with the async client
 
 ### Options Trading Example
 
