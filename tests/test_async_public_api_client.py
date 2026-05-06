@@ -21,6 +21,7 @@ from public_api_sdk import (
 )
 from public_api_sdk.models.account import AccountsResponse
 from public_api_sdk.models.async_new_order import AsyncNewOrder
+from public_api_sdk.models.historic_data import Bar, BarAggregation, BarPeriod, BarsResponse
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
 from public_api_sdk.models.instrument import Instrument
 from public_api_sdk.models.option import GreeksResponse
@@ -814,3 +815,81 @@ class TestGetOptionGreeks:
         self.client.api_client.get = AsyncMock(return_value={"greeks": []})
         with pytest.raises(ValueError, match="No greeks found"):
             await self.client.get_option_greek("AAPL230120C00150000")
+
+
+# ---------------------------------------------------------------------------
+# get_bars
+# ---------------------------------------------------------------------------
+
+
+def _bars_payload(symbol: str = "AAPL", period: str = "YEAR") -> dict:
+    bar = {
+        "timestamp": "2024-01-02T09:30:00",
+        "open": "185.00",
+        "close": "186.50",
+        "high": "187.00",
+        "low": "184.50",
+        "value": "186.50",
+        "volume": 50_000_000,
+    }
+    session = {"expectedBars": 1, "bars": [bar]}
+    return {
+        "symbol": symbol,
+        "period": period,
+        "totalExpectedBars": 1,
+        "preMarket": session,
+        "regularMarket": session,
+        "afterMarket": session,
+    }
+
+
+class TestGetBars:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    @pytest.mark.asyncio
+    async def test_calls_url_without_aggregation(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/AAPL/YEAR"
+
+    @pytest.mark.asyncio
+    async def test_calls_url_with_aggregation(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        await self.client.get_bars("AAPL", BarPeriod.YEAR, aggregation=BarAggregation.ONE_HOUR)
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/AAPL/YEAR/ONE_HOUR"
+
+    @pytest.mark.asyncio
+    async def test_passes_purchase_date_as_query_param(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload(period="SINCE_PURCHASE"))
+        await self.client.get_bars("AAPL", BarPeriod.SINCE_PURCHASE, purchase_date="2024-03-15")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"purchaseDate": "2024-03-15"}
+
+    @pytest.mark.asyncio
+    async def test_omits_params_when_no_purchase_date(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params is None
+
+    @pytest.mark.asyncio
+    async def test_returns_bars_response(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        result = await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert isinstance(result, BarsResponse)
+        assert result.symbol == "AAPL"
+        assert result.period == "YEAR"
+
+    @pytest.mark.asyncio
+    async def test_response_deserializes_sessions_and_bars(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        result = await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.total_expected_bars == 1
+        assert len(result.regular_market.bars) == 1
+        bar = result.regular_market.bars[0]
+        assert isinstance(bar, Bar)
+        assert bar.open == Decimal("185.00")
+        assert bar.close == Decimal("186.50")

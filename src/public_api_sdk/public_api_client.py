@@ -7,6 +7,9 @@ from .auth_config import AuthConfig
 from .auth_manager import AuthManager
 from .models import (
     AccountsResponse,
+    BarAggregation,
+    BarPeriod,
+    BarsResponse,
     CancelAndReplaceRequest,
     EquityMarketSession,
     GreeksResponse,
@@ -296,6 +299,35 @@ class PublicApiClient:
             json_data=option_chain_request.model_dump(by_alias=True, exclude_none=True),
         )
         return OptionChainResponse(**response)
+
+    def get_bars(
+        self,
+        symbol: str,
+        period: BarPeriod,
+        *,
+        aggregation: Optional[BarAggregation] = None,
+        purchase_date: Optional[str] = None,
+    ) -> BarsResponse:
+        """Fetch OHLCV bar data for a symbol over a given time period.
+
+        Args:
+            symbol: The ticker symbol (e.g. ``"AAPL"``).
+            period: The time window to retrieve (e.g. ``BarPeriod.YEAR``).
+            aggregation: Optional bar size override. When omitted the server
+                chooses an appropriate aggregation for the period.
+            purchase_date: Required when ``period`` is ``BarPeriod.SINCE_PURCHASE``.
+                Format: ``"YYYY-MM-DD"``.
+
+        Returns:
+            BarsResponse with pre-market, regular-market, and after-hours bars.
+        """
+        self.auth_manager.refresh_token_if_needed()
+        path = f"/userapigateway/historicdata/{symbol}/{period.value}"
+        if aggregation is not None:
+            path += f"/{aggregation.value}"
+        params = {"purchaseDate": purchase_date} if purchase_date else None
+        response = self.api_client.get(path, params=params)
+        return BarsResponse(**response)
 
     def get_option_greeks(
         self,
