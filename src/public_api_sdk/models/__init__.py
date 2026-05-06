@@ -1,4 +1,5 @@
 from .auth import AccessTokenResponse
+from .historic_data import Bar, BarAggregation, BarPeriod, BarsResponse, MarketSessionBars
 from .account import Account, AccountType, AccountsResponse
 from .history import HistoryRequest, HistoryResponsePage
 from .instrument import (
@@ -83,6 +84,11 @@ from .new_order import (
 from .async_new_order import AsyncNewOrder
 
 __all__ = [
+    "Bar",
+    "BarAggregation",
+    "BarPeriod",
+    "BarsResponse",
+    "MarketSessionBars",
     "AccessTokenResponse",
     "Account",
     "AccountType",

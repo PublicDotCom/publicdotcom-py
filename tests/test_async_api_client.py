@@ -388,6 +388,60 @@ class TestAsyncApiClientRetry:
         with pytest.raises(APIError):
             await self.client.get("/endpoint")
 
+    @pytest.mark.asyncio
+    async def test_429_with_retry_after_header_sleeps_server_value(self) -> None:
+        rate_limited = _make_httpx_response(
+            429, data={"message": "slow down"}, headers={"Retry-After": "2"}
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            result = await self.client.get("/endpoint")
+
+        assert result == {"ok": True}
+        sleep_mock.assert_awaited_once_with(2.0)
+
+    @pytest.mark.asyncio
+    async def test_429_without_retry_after_falls_back_to_backoff(self) -> None:
+        rate_limited = _make_httpx_response(
+            429, data={"message": "slow down"}, headers={}
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            await self.client.get("/endpoint")
+
+        # first retry: backoff_factor * 2^0 = 0.01
+        sleep_mock.assert_awaited_once_with(pytest.approx(0.01))
+
+    @pytest.mark.asyncio
+    async def test_429_with_malformed_retry_after_falls_back_to_backoff(self) -> None:
+        rate_limited = _make_httpx_response(
+            429, data={"message": "slow down"}, headers={"Retry-After": "bad-value"}
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            await self.client.get("/endpoint")
+
+        sleep_mock.assert_awaited_once_with(pytest.approx(0.01))
+
+    @pytest.mark.asyncio
+    async def test_429_with_large_retry_after_capped_at_60s(self) -> None:
+        rate_limited = _make_httpx_response(
+            429, data={"message": "slow down"}, headers={"Retry-After": "3600"}
+        )
+        success = _make_httpx_response(200, data={"ok": True})
+        self.client._client.request = AsyncMock(side_effect=[rate_limited, success])
+
+        with patch("public_api_sdk.async_api_client.asyncio.sleep", new=AsyncMock()) as sleep_mock:
+            await self.client.get("/endpoint")
+
+        sleep_mock.assert_awaited_once_with(60.0)
+
 
 # ---------------------------------------------------------------------------
 # Close

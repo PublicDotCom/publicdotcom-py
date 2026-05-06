@@ -4,6 +4,11 @@ from .models import (
     Account,
     AccountType,
     AsyncNewOrder,
+    Bar,
+    BarAggregation,
+    BarPeriod,
+    BarsResponse,
+    MarketSessionBars,
     BondInstrumentDetails,
     CancelAndReplaceRequest,
     CryptoInstrumentDetails,
@@ -81,9 +86,15 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.12"
+__version__ = "0.1.13"
 
 __all__ = [
+    # Historic data
+    "Bar",
+    "BarAggregation",
+    "BarPeriod",
+    "BarsResponse",
+    "MarketSessionBars",
     # Auth
     "AuthConfig",
     "AsyncAuthConfig",
