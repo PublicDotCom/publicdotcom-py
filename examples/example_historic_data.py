@@ -23,6 +23,7 @@ from public_api_sdk import (
     AsyncPublicApiClientConfiguration,
     BarAggregation,
     BarPeriod,
+    InstrumentType,
     PublicApiClient,
     PublicApiClientConfiguration,
 )
@@ -108,6 +109,7 @@ def sync_example() -> None:
         bars = client.get_bars(
             "BTC",
             BarPeriod.YTD,
+            instrument_type=InstrumentType.CRYPTO,
             aggregation=BarAggregation.ONE_HOUR,
         )
         _print_bars_summary(bars)

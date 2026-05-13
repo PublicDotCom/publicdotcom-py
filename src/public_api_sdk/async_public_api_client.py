@@ -64,6 +64,15 @@ if TYPE_CHECKING:
 
 PROD_BASE_URL = "https://api.public.com"
 
+_BAR_INSTRUMENT_TYPES = frozenset(
+    {
+        InstrumentType.EQUITY,
+        InstrumentType.CRYPTO,
+        InstrumentType.OPTION,
+        InstrumentType.INDEX,
+    }
+)
+
 
 class AsyncPublicApiClientConfiguration:
     """Configuration for AsyncPublicApiClient."""
@@ -369,6 +378,7 @@ class AsyncPublicApiClient:
         symbol: str,
         period: BarPeriod,
         *,
+        instrument_type: InstrumentType = InstrumentType.EQUITY,
         aggregation: Optional[BarAggregation] = None,
         purchase_date: Optional[str] = None,
     ) -> BarsResponse:
@@ -377,6 +387,8 @@ class AsyncPublicApiClient:
         Args:
             symbol: The ticker symbol (e.g. ``"AAPL"``).
             period: The time window to retrieve (e.g. ``BarPeriod.YEAR``).
+            instrument_type: One of ``EQUITY``, ``CRYPTO``, ``OPTION``, ``INDEX``.
+                Defaults to ``EQUITY``.
             aggregation: Optional bar size override. When omitted the server
                 chooses an appropriate aggregation for the period.
             purchase_date: Required when ``period`` is ``BarPeriod.SINCE_PURCHASE``.
@@ -385,8 +397,16 @@ class AsyncPublicApiClient:
         Returns:
             BarsResponse with pre-market, regular-market, and after-hours bars.
         """
+        if instrument_type not in _BAR_INSTRUMENT_TYPES:
+            raise ValueError(
+                f"{instrument_type} is not supported for historic bars; "
+                f"expected one of EQUITY, CRYPTO, OPTION, INDEX"
+            )
         await self.auth_manager.refresh_token_if_needed()
-        path = f"/userapigateway/historicdata/{symbol}/{period.value}"
+        path = (
+            f"/userapigateway/historicdata/{instrument_type.value}"
+            f"/{symbol}/{period.value}"
+        )
         if aggregation is not None:
             path += f"/{aggregation.value}"
         params = {"purchaseDate": purchase_date} if purchase_date else None

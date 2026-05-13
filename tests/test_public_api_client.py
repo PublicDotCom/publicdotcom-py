@@ -891,13 +891,37 @@ class TestGetBars:
         self.client.api_client.get = Mock(return_value=_bars_payload())
         self.client.get_bars("AAPL", BarPeriod.YEAR)
         url = self.client.api_client.get.call_args[0][0]
-        assert url == "/userapigateway/historicdata/AAPL/YEAR"
+        assert url == "/userapigateway/historicdata/EQUITY/AAPL/YEAR"
 
     def test_calls_url_with_aggregation(self) -> None:
         self.client.api_client.get = Mock(return_value=_bars_payload())
         self.client.get_bars("AAPL", BarPeriod.YEAR, aggregation=BarAggregation.ONE_HOUR)
         url = self.client.api_client.get.call_args[0][0]
-        assert url == "/userapigateway/historicdata/AAPL/YEAR/ONE_HOUR"
+        assert url == "/userapigateway/historicdata/EQUITY/AAPL/YEAR/ONE_HOUR"
+
+    def test_calls_url_with_crypto_instrument_type(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload(symbol="BTC"))
+        self.client.get_bars(
+            "BTC", BarPeriod.YEAR, instrument_type=InstrumentType.CRYPTO
+        )
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/CRYPTO/BTC/YEAR"
+
+    def test_calls_url_with_option_instrument_type(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload(symbol="AAPL  240119C00150000"))
+        self.client.get_bars(
+            "AAPL  240119C00150000",
+            BarPeriod.YEAR,
+            instrument_type=InstrumentType.OPTION,
+        )
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/OPTION/AAPL  240119C00150000/YEAR"
+
+    def test_rejects_unsupported_instrument_type(self) -> None:
+        with pytest.raises(ValueError, match="not supported for historic bars"):
+            self.client.get_bars(
+                "AAPL", BarPeriod.YEAR, instrument_type=InstrumentType.BOND
+            )
 
     def test_passes_purchase_date_as_query_param(self) -> None:
         self.client.api_client.get = Mock(return_value=_bars_payload(period="SINCE_PURCHASE"))
