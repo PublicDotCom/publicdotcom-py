@@ -62,6 +62,13 @@ def _print_bars_summary(bars) -> None:
     if bars.total_gain_loss is not None:
         print(f"  Gain/loss : ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
 
+    last = bars.last_regular_trading_session_close
+    if last is not None:
+        print(
+            f"  Prior close : ${last.close} on {last.close_date}"
+            f"  (change {last.change}, {last.percent_change}%)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Sync example
