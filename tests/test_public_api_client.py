@@ -21,7 +21,13 @@ from public_api_sdk import (
     PublicApiClientConfiguration,
 )
 from public_api_sdk.models.account import AccountsResponse
-from public_api_sdk.models.historic_data import Bar, BarAggregation, BarPeriod, BarsResponse
+from public_api_sdk.models.historic_data import (
+    Bar,
+    BarAggregation,
+    BarPeriod,
+    BarsResponse,
+    LastSessionClose,
+)
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
 from public_api_sdk.models.instrument import Instrument
 from public_api_sdk.models.new_order import NewOrder
@@ -41,7 +47,7 @@ from public_api_sdk.models.order import (
     TimeInForce,
 )
 from public_api_sdk.models.portfolio import Portfolio
-from public_api_sdk.models.quote import Quote
+from public_api_sdk.models.quote import Quote, QuoteRequest
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +223,12 @@ class TestGetQuotes:
         self.client.api_client.post = Mock(return_value={"quotes": []})
         self.client.get_quotes(self.instruments)
         json_data = self.client.api_client.post.call_args[1]["json_data"]
-        assert "instruments" in json_data
-        assert len(json_data["instruments"]) == 2
+        assert json_data == {
+            "instruments": [
+                {"symbol": "AAPL", "type": "EQUITY"},
+                {"symbol": "GOOGL", "type": "EQUITY"},
+            ]
+        }
 
     def test_returns_list_of_quotes(self) -> None:
         self.client.api_client.post = Mock(
@@ -242,6 +252,26 @@ class TestGetQuotes:
         self.client.api_client.post = Mock(return_value={"quotes": []})
         result = self.client.get_quotes(self.instruments)
         assert result == []
+
+
+class TestQuoteRequest:
+    def test_serializes_instruments(self) -> None:
+        request = QuoteRequest(
+            instruments=[
+                OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+                OrderInstrument(symbol="BTC", type=InstrumentType.CRYPTO),
+            ]
+        )
+        assert request.model_dump(by_alias=True, exclude_none=True) == {
+            "instruments": [
+                {"symbol": "AAPL", "type": "EQUITY"},
+                {"symbol": "BTC", "type": "CRYPTO"},
+            ]
+        }
+
+    def test_requires_instruments(self) -> None:
+        with pytest.raises(ValueError):
+            QuoteRequest()  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +981,41 @@ class TestGetBars:
         assert isinstance(bar, Bar)
         assert bar.open == Decimal("185.00")
         assert bar.close == Decimal("186.50")
+
+    def test_parses_last_regular_trading_session_close(self) -> None:
+        payload = _bars_payload()
+        payload["lastRegularTradingSessionClose"] = {
+            "close": "186.50",
+            "closeDate": "2024-01-02",
+            "change": "1.50",
+            "percentChange": "0.81",
+        }
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert isinstance(result.last_regular_trading_session_close, LastSessionClose)
+        assert result.last_regular_trading_session_close.close == Decimal("186.50")
+        assert result.last_regular_trading_session_close.close_date == "2024-01-02"
+        assert result.last_regular_trading_session_close.change == Decimal("1.50")
+        assert result.last_regular_trading_session_close.percent_change == Decimal("0.81")
+
+    def test_parses_last_regular_trading_session_close_with_nullable_fields(self) -> None:
+        payload = _bars_payload()
+        payload["lastRegularTradingSessionClose"] = {
+            "close": "186.50",
+            "closeDate": "2024-01-02",
+            "change": None,
+            "percentChange": None,
+        }
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.last_regular_trading_session_close is not None
+        assert result.last_regular_trading_session_close.change is None
+        assert result.last_regular_trading_session_close.percent_change is None
+
+    def test_last_regular_trading_session_close_is_none_when_absent(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        result = self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.last_regular_trading_session_close is None
 
 
 # ---------------------------------------------------------------------------

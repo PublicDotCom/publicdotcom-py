@@ -48,6 +48,7 @@ from .models import (
     PreflightRequest,
     PreflightResponse,
     Quote,
+    QuoteRequest,
     TimeInForce,
 )
 from .models.async_new_order import AsyncNewOrder
@@ -319,11 +320,10 @@ class AsyncPublicApiClient:
         """
         account_id = self._get_account_id(account_id)
         await self.auth_manager.refresh_token_if_needed()
+        request = QuoteRequest(instruments=instruments)
         response = await self.api_client.post(
             f"/userapigateway/marketdata/{account_id}/quotes",
-            json_data={
-                "instruments": [instrument.model_dump() for instrument in instruments]
-            },
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
         return [Quote(**q) for q in response.get("quotes", [])]
 

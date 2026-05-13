@@ -37,6 +37,7 @@ from .models import (
     PreflightRequest,
     PreflightResponse,
     Quote,
+    QuoteRequest,
     TimeInForce,
 )
 from .order_subscription_manager import OrderSubscriptionManager
@@ -261,11 +262,10 @@ class PublicApiClient:
         """
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
+        request = QuoteRequest(instruments=instruments)
         response = self.api_client.post(
             f"/userapigateway/marketdata/{account_id}/quotes",
-            json_data={
-                "instruments": [instrument.model_dump() for instrument in instruments]
-            },
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
         quotes = response.get("quotes", [])
         return [Quote(**quote) for quote in quotes]

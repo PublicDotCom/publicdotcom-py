@@ -293,8 +293,7 @@ class TestGetQuotes:
         await self.client.get_quotes(self.instruments)
         call_kwargs = self.client.api_client.post.call_args[1]
         body = call_kwargs["json_data"]
-        assert "instruments" in body
-        assert body["instruments"][0]["symbol"] == "AAPL"
+        assert body == {"instruments": [{"symbol": "AAPL", "type": "EQUITY"}]}
 
 
 # ---------------------------------------------------------------------------

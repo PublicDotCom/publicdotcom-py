@@ -1,5 +1,12 @@
 from .auth import AccessTokenResponse
-from .historic_data import Bar, BarAggregation, BarPeriod, BarsResponse, MarketSessionBars
+from .historic_data import (
+    Bar,
+    BarAggregation,
+    BarPeriod,
+    BarsResponse,
+    LastSessionClose,
+    MarketSessionBars,
+)
 from .account import Account, AccountType, AccountsResponse
 from .history import HistoryRequest, HistoryResponsePage
 from .instrument import (
@@ -65,6 +72,7 @@ from .quote import (
     Quote,
     QuoteOptionDetails,
     QuoteOutcome,
+    QuoteRequest,
 )
 from .subscription import (
     SubscriptionStatus,
@@ -88,6 +96,7 @@ __all__ = [
     "BarAggregation",
     "BarPeriod",
     "BarsResponse",
+    "LastSessionClose",
     "MarketSessionBars",
     "AccessTokenResponse",
     "Account",
@@ -129,6 +138,7 @@ __all__ = [
     "Quote",
     "QuoteOptionDetails",
     "QuoteOutcome",
+    "QuoteRequest",
     "PreflightRequest",
     "PreflightResponse",
     "ShortSelling",

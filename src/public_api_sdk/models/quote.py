@@ -1,11 +1,21 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import AliasChoices, BaseModel, Field
 
 from .order import OrderInstrument
+
+
+class QuoteRequest(BaseModel):
+    """Request body for `POST /marketdata/{accountId}/quotes`."""
+
+    model_config = {"populate_by_name": True}
+
+    instruments: List[OrderInstrument] = Field(
+        ..., description="List of instruments to retrieve quotes for."
+    )
 
 
 class QuoteOutcome(str, Enum):
