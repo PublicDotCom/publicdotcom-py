@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.13-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.14-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -352,6 +352,37 @@ bars = client.get_bars("AAPL", BarPeriod.WEEK, aggregation=BarAggregation.THIRTY
 ```
 
 Available aggregations: `ONE_MINUTE`, `FIVE_MINUTES`, `TEN_MINUTES`, `FIFTEEN_MINUTES`, `THIRTY_MINUTES`, `ONE_HOUR`, `ONE_DAY`, `ONE_WEEK`, `ONE_MONTH`, `THREE_MONTHS`, `SIX_MONTHS`, `ONE_YEAR`.
+
+##### Instrument type
+
+`get_bars` defaults to `InstrumentType.EQUITY`. Pass `instrument_type` to request bars for crypto, options, or indices:
+
+```python
+from public_api_sdk import BarAggregation, BarPeriod, InstrumentType
+
+# Bitcoin year-to-date, hourly bars
+bars = client.get_bars(
+    "BTC",
+    BarPeriod.YTD,
+    instrument_type=InstrumentType.CRYPTO,
+    aggregation=BarAggregation.ONE_HOUR,
+)
+
+# Index bars
+bars = client.get_bars("SPX", BarPeriod.YEAR, instrument_type=InstrumentType.INDEX)
+```
+
+Supported values: `EQUITY`, `CRYPTO`, `OPTION`, `INDEX`. Any other `InstrumentType` raises `ValueError`.
+
+##### Last regular trading session close
+
+`bars.last_regular_trading_session_close` is a `LastSessionClose` model (or `None`) carrying the prior session's close price and change:
+
+```python
+last = bars.last_regular_trading_session_close
+if last is not None:
+    print(f"Prior close: ${last.close} on {last.close_date}  ({last.percent_change}%)")
+```
 
 ##### Performance since purchase
 
@@ -1132,13 +1163,21 @@ instruments = await client.get_all_instruments(
 `get_bars` is a coroutine on the async client — `await` it directly, or use `asyncio.gather` to fetch multiple symbols concurrently:
 
 ```python
-from public_api_sdk import BarAggregation, BarPeriod
+from public_api_sdk import BarAggregation, BarPeriod, InstrumentType
 
-# Single symbol
+# Single symbol (defaults to EQUITY)
 bars = await client.get_bars("AAPL", BarPeriod.YEAR)
 
 # With aggregation override
 bars = await client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
+
+# Crypto / options / indices via instrument_type
+btc_bars = await client.get_bars(
+    "BTC",
+    BarPeriod.YTD,
+    instrument_type=InstrumentType.CRYPTO,
+    aggregation=BarAggregation.ONE_HOUR,
+)
 
 # Multiple symbols concurrently
 aapl_bars, msft_bars = await asyncio.gather(

@@ -23,6 +23,7 @@ from public_api_sdk import (
     AsyncPublicApiClientConfiguration,
     BarAggregation,
     BarPeriod,
+    InstrumentType,
     PublicApiClient,
     PublicApiClientConfiguration,
 )
@@ -60,6 +61,13 @@ def _print_bars_summary(bars) -> None:
 
     if bars.total_gain_loss is not None:
         print(f"  Gain/loss : ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
+
+    last = bars.last_regular_trading_session_close
+    if last is not None:
+        print(
+            f"  Prior close : ${last.close} on {last.close_date}"
+            f"  (change {last.change}, {last.percent_change}%)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +116,7 @@ def sync_example() -> None:
         bars = client.get_bars(
             "BTC",
             BarPeriod.YTD,
+            instrument_type=InstrumentType.CRYPTO,
             aggregation=BarAggregation.ONE_HOUR,
         )
         _print_bars_summary(bars)

@@ -56,6 +56,27 @@ class Bar(BaseModel):
     )
 
 
+class LastSessionClose(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    close: Decimal = Field(..., description="Closing price of the last session.")
+    close_date: str = Field(
+        ...,
+        validation_alias=AliasChoices("close_date", "closeDate"),
+        serialization_alias="closeDate",
+        description="Date of the last session close (YYYY-MM-DD).",
+    )
+    change: Optional[Decimal] = Field(
+        None, description="Change vs. the prior session close."
+    )
+    percent_change: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("percent_change", "percentChange"),
+        serialization_alias="percentChange",
+        description="Percent change vs. the prior session close.",
+    )
+
+
 class MarketSessionBars(BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -114,7 +135,7 @@ class BarsResponse(BaseModel):
         serialization_alias="afterMarket",
         description="After-hours session bars.",
     )
-    last_regular_trading_session_close: Optional[dict] = Field(
+    last_regular_trading_session_close: Optional[LastSessionClose] = Field(
         None,
         validation_alias=AliasChoices(
             "last_regular_trading_session_close", "lastRegularTradingSessionClose"

@@ -8,6 +8,7 @@ from .models import (
     BarAggregation,
     BarPeriod,
     BarsResponse,
+    LastSessionClose,
     MarketSessionBars,
     BondInstrumentDetails,
     CancelAndReplaceRequest,
@@ -62,6 +63,7 @@ from .models import (
     Quote,
     QuoteOptionDetails,
     QuoteOutcome,
+    QuoteRequest,
     ShortingAvailability,
     ShortSelling,
     Strategy,
@@ -86,7 +88,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.13"
+__version__ = "0.1.14"
 
 __all__ = [
     # Historic data
@@ -94,6 +96,7 @@ __all__ = [
     "BarAggregation",
     "BarPeriod",
     "BarsResponse",
+    "LastSessionClose",
     "MarketSessionBars",
     # Auth
     "AuthConfig",
@@ -163,6 +166,7 @@ __all__ = [
     "Quote",
     "QuoteOptionDetails",
     "QuoteOutcome",
+    "QuoteRequest",
     "PriceChange",
     "PriceChangeCallback",
     "SubscriptionConfig",

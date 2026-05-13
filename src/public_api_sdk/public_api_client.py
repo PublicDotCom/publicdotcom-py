@@ -37,6 +37,7 @@ from .models import (
     PreflightRequest,
     PreflightResponse,
     Quote,
+    QuoteRequest,
     TimeInForce,
 )
 from .order_subscription_manager import OrderSubscriptionManager
@@ -57,6 +58,15 @@ from .strategy_preflight import (
 from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
+
+_BAR_INSTRUMENT_TYPES = frozenset(
+    {
+        InstrumentType.EQUITY,
+        InstrumentType.CRYPTO,
+        InstrumentType.OPTION,
+        InstrumentType.INDEX,
+    }
+)
 
 
 class PublicApiClientConfiguration:
@@ -252,11 +262,10 @@ class PublicApiClient:
         """
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
+        request = QuoteRequest(instruments=instruments)
         response = self.api_client.post(
             f"/userapigateway/marketdata/{account_id}/quotes",
-            json_data={
-                "instruments": [instrument.model_dump() for instrument in instruments]
-            },
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
         quotes = response.get("quotes", [])
         return [Quote(**quote) for quote in quotes]
@@ -305,6 +314,7 @@ class PublicApiClient:
         symbol: str,
         period: BarPeriod,
         *,
+        instrument_type: InstrumentType = InstrumentType.EQUITY,
         aggregation: Optional[BarAggregation] = None,
         purchase_date: Optional[str] = None,
     ) -> BarsResponse:
@@ -313,6 +323,8 @@ class PublicApiClient:
         Args:
             symbol: The ticker symbol (e.g. ``"AAPL"``).
             period: The time window to retrieve (e.g. ``BarPeriod.YEAR``).
+            instrument_type: One of ``EQUITY``, ``CRYPTO``, ``OPTION``, ``INDEX``.
+                Defaults to ``EQUITY``.
             aggregation: Optional bar size override. When omitted the server
                 chooses an appropriate aggregation for the period.
             purchase_date: Required when ``period`` is ``BarPeriod.SINCE_PURCHASE``.
@@ -321,8 +333,16 @@ class PublicApiClient:
         Returns:
             BarsResponse with pre-market, regular-market, and after-hours bars.
         """
+        if instrument_type not in _BAR_INSTRUMENT_TYPES:
+            raise ValueError(
+                f"{instrument_type} is not supported for historic bars; "
+                f"expected one of EQUITY, CRYPTO, OPTION, INDEX"
+            )
         self.auth_manager.refresh_token_if_needed()
-        path = f"/userapigateway/historicdata/{symbol}/{period.value}"
+        path = (
+            f"/userapigateway/historicdata/{instrument_type.value}"
+            f"/{symbol}/{period.value}"
+        )
         if aggregation is not None:
             path += f"/{aggregation.value}"
         params = {"purchaseDate": purchase_date} if purchase_date else None
