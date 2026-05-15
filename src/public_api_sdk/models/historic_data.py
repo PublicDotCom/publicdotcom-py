@@ -41,7 +41,7 @@ class Bar(BaseModel):
     high: Decimal = Field(..., description="Highest price during the bar interval.")
     low: Decimal = Field(..., description="Lowest price during the bar interval.")
     value: Decimal = Field(..., description="Value of the bar.")
-    volume: int = Field(..., description="Volume traded during the bar interval.")
+    volume: Decimal = Field(..., description="Volume traded during the bar interval.")
     gain_amount: Optional[Decimal] = Field(
         None,
         validation_alias=AliasChoices("gain_amount", "gainAmount"),
