@@ -829,7 +829,7 @@ def _bars_payload(symbol: str = "AAPL", period: str = "YEAR") -> dict:
         "high": "187.00",
         "low": "184.50",
         "value": "186.50",
-        "volume": 50_000_000,
+        "volume": 6321507.562155,
     }
     session = {"expectedBars": 1, "bars": [bar]}
     return {
@@ -921,3 +921,4 @@ class TestGetBars:
         assert isinstance(bar, Bar)
         assert bar.open == Decimal("185.00")
         assert bar.close == Decimal("186.50")
+        assert bar.volume == Decimal("6321507.562155")
