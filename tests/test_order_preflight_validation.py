@@ -56,6 +56,48 @@ class TestOrderRequestValidation:
                 quantity=100,
             )
 
+    def test_use_margin_optional_and_omitted(self) -> None:
+        """use_margin defaults to None and is excluded from serialization when unset."""
+        order = OrderRequest(
+            order_id=self.valid_uuid,
+            instrument=self.base_instrument,
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+            quantity=100,
+        )
+        assert order.use_margin is None
+        assert "useMargin" not in order.model_dump(by_alias=True, exclude_none=True)
+
+    def test_use_margin_serializes_with_alias(self) -> None:
+        """use_margin serializes to the `useMargin` JSON key."""
+        order = OrderRequest(
+            order_id=self.valid_uuid,
+            instrument=self.base_instrument,
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+            quantity=100,
+            use_margin=False,
+        )
+        assert order.use_margin is False
+        assert order.model_dump(by_alias=True, exclude_none=True)["useMargin"] is False
+
+    def test_use_margin_accepts_camel_case_alias(self) -> None:
+        """use_margin is populatable from the `useMargin` alias."""
+        order = OrderRequest.model_validate(
+            {
+                "orderId": self.valid_uuid,
+                "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+                "orderSide": "BUY",
+                "orderType": "MARKET",
+                "expiration": {"timeInForce": "DAY"},
+                "quantity": "100",
+                "useMargin": True,
+            }
+        )
+        assert order.use_margin is True
+
 
 class TestSharedValidation:
     """Tests for validations shared between OrderRequest and PreflightRequest."""

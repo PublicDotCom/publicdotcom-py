@@ -13,6 +13,8 @@ class BarPeriod(str, Enum):
     HALF_YEAR = "HALF_YEAR"
     YEAR = "YEAR"
     FIVE_YEARS = "FIVE_YEARS"
+    TEN_YEARS = "TEN_YEARS"
+    ALL = "ALL"
     YTD = "YTD"
     SINCE_PURCHASE = "SINCE_PURCHASE"
 
