@@ -534,6 +534,16 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         serialization_alias="equityMarketSession",
         description="Specifies the equity market session for equity orders (e.g., CORE or EXTENDED).",
     )
+    use_margin: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("use_margin", "useMargin"),
+        serialization_alias="useMargin",
+        description=(
+            "If False, the order will be evaluated using cash-only buying power instead "
+            "of margin buying power when available. If True or omitted, margin will be "
+            "applied when allowed by the account configuration."
+        ),
+    )
 
     @field_serializer("order_side")
     def serialize_order_side(self, value: OrderSide) -> str:

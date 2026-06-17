@@ -929,6 +929,18 @@ class TestGetBars:
         url = self.client.api_client.get.call_args[0][0]
         assert url == "/userapigateway/historicdata/EQUITY/AAPL/YEAR/ONE_HOUR"
 
+    def test_calls_url_with_ten_years_period(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload(period="TEN_YEARS"))
+        self.client.get_bars("AAPL", BarPeriod.TEN_YEARS)
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/EQUITY/AAPL/TEN_YEARS"
+
+    def test_calls_url_with_all_period(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload(period="ALL"))
+        self.client.get_bars("AAPL", BarPeriod.ALL)
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == "/userapigateway/historicdata/EQUITY/AAPL/ALL"
+
     def test_calls_url_with_crypto_instrument_type(self) -> None:
         self.client.api_client.get = Mock(return_value=_bars_payload(symbol="BTC"))
         self.client.get_bars(

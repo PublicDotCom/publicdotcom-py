@@ -88,7 +88,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.15"
+__version__ = "0.1.17"
 
 __all__ = [
     # Historic data

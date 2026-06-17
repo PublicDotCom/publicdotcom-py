@@ -304,6 +304,15 @@ class MultilegOrderRequest(MultilegValidationMixin, BaseModel):
     legs: List[OrderLegRequest] = Field(
         ..., description="From 2-6 legs. There can be at most 1 equity leg"
     )
+    use_margin: Optional[bool] = Field(
+        None,
+        validation_alias=AliasChoices("use_margin", "useMargin"),
+        serialization_alias="useMargin",
+        description=(
+            "Optional field to indicate whether to use margin buying power. "
+            "Defaults to True if not specified."
+        ),
+    )
 
     @field_validator("order_id")
     @classmethod

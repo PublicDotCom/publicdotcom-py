@@ -98,6 +98,48 @@ class TestMultilegOrderRequestValidation:
                 legs=self.base_legs,
             )
 
+    def test_use_margin_optional_and_omitted(self) -> None:
+        """use_margin defaults to None and is excluded from serialization when unset."""
+        order = MultilegOrderRequest(
+            order_id=self.valid_uuid,
+            quantity=10,
+            type=OrderType.LIMIT,
+            limit_price=Decimal("1.50"),
+            expiration=self.base_expiration,
+            legs=self.base_legs,
+        )
+        assert order.use_margin is None
+        assert "useMargin" not in order.model_dump(by_alias=True, exclude_none=True)
+
+    def test_use_margin_serializes_with_alias(self) -> None:
+        """use_margin serializes to the `useMargin` JSON key."""
+        order = MultilegOrderRequest(
+            order_id=self.valid_uuid,
+            quantity=10,
+            type=OrderType.LIMIT,
+            limit_price=Decimal("1.50"),
+            expiration=self.base_expiration,
+            legs=self.base_legs,
+            use_margin=False,
+        )
+        assert order.use_margin is False
+        assert order.model_dump(by_alias=True, exclude_none=True)["useMargin"] is False
+
+    def test_use_margin_accepts_camel_case_alias(self) -> None:
+        """use_margin is populatable from the `useMargin` alias."""
+        order = MultilegOrderRequest.model_validate(
+            {
+                "orderId": self.valid_uuid,
+                "quantity": 10,
+                "type": "LIMIT",
+                "limitPrice": "1.50",
+                "expiration": {"timeInForce": "DAY"},
+                "legs": [leg.model_dump(by_alias=True) for leg in self.base_legs],
+                "useMargin": True,
+            }
+        )
+        assert order.use_margin is True
+
 
 class TestSharedMultilegValidation:
     """Tests for validations shared between MultilegOrderRequest and PreflightMultiLegRequest."""
