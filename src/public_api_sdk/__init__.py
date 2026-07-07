@@ -10,6 +10,7 @@ from .models import (
     BarsResponse,
     LastSessionClose,
     MarketSessionBars,
+    TradingSessionToggle,
     BondInstrumentDetails,
     CancelAndReplaceRequest,
     CryptoInstrumentDetails,
@@ -88,7 +89,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.17"
+__version__ = "0.1.18"
 
 __all__ = [
     # Historic data
@@ -98,6 +99,7 @@ __all__ = [
     "BarsResponse",
     "LastSessionClose",
     "MarketSessionBars",
+    "TradingSessionToggle",
     # Auth
     "AuthConfig",
     "AsyncAuthConfig",

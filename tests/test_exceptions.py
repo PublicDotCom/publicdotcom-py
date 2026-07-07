@@ -33,6 +33,28 @@ class TestAPIError:
         err = APIError("err")
         assert err.response_data == {}
 
+    def test_error_code_extracted_from_response_data(self) -> None:
+        err = APIError(
+            "err",
+            status_code=400,
+            response_data={"errorCode": "INSUFFICIENT_FUNDS", "message": "err"},
+        )
+        assert err.error_code == "INSUFFICIENT_FUNDS"
+
+    def test_error_code_none_when_absent(self) -> None:
+        err = APIError("err", status_code=400, response_data={"message": "err"})
+        assert err.error_code is None
+
+    def test_error_code_none_without_response_data(self) -> None:
+        err = APIError("err")
+        assert err.error_code is None
+
+    def test_error_code_on_subclasses(self) -> None:
+        err = ValidationError(
+            "bad", status_code=400, response_data={"errorCode": "INVALID_SYMBOL"}
+        )
+        assert err.error_code == "INVALID_SYMBOL"
+
     def test_status_code_none_by_default(self) -> None:
         err = APIError("err")
         assert err.status_code is None

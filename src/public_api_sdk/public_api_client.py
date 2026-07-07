@@ -39,6 +39,7 @@ from .models import (
     Quote,
     QuoteRequest,
     TimeInForce,
+    TradingSessionToggle,
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
@@ -317,6 +318,7 @@ class PublicApiClient:
         instrument_type: InstrumentType = InstrumentType.EQUITY,
         aggregation: Optional[BarAggregation] = None,
         purchase_date: Optional[str] = None,
+        trading_session_toggle: Optional[TradingSessionToggle] = None,
     ) -> BarsResponse:
         """Fetch OHLCV bar data for a symbol over a given time period.
 
@@ -329,6 +331,11 @@ class PublicApiClient:
                 chooses an appropriate aggregation for the period.
             purchase_date: Required when ``period`` is ``BarPeriod.SINCE_PURCHASE``.
                 Format: ``"YYYY-MM-DD"``.
+            trading_session_toggle: Which sessions to include on the DAY equity
+                chart. When omitted the server defaults to
+                ``REGULAR_AND_EXTENDED_HOURS``. ``ALL_SESSIONS`` adds the
+                overnight ATS sessions (``pre_market_overnight`` and
+                ``post_market_overnight`` on the response).
 
         Returns:
             BarsResponse with pre-market, regular-market, and after-hours bars.
@@ -345,8 +352,12 @@ class PublicApiClient:
         )
         if aggregation is not None:
             path += f"/{aggregation.value}"
-        params = {"purchaseDate": purchase_date} if purchase_date else None
-        response = self.api_client.get(path, params=params)
+        params = {}
+        if purchase_date:
+            params["purchaseDate"] = purchase_date
+        if trading_session_toggle is not None:
+            params["tradingSessionToggle"] = trading_session_toggle.value
+        response = self.api_client.get(path, params=params or None)
         return BarsResponse(**response)
 
     def get_option_greeks(

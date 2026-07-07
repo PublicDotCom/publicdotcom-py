@@ -21,7 +21,13 @@ from public_api_sdk import (
 )
 from public_api_sdk.models.account import AccountsResponse
 from public_api_sdk.models.async_new_order import AsyncNewOrder
-from public_api_sdk.models.historic_data import Bar, BarAggregation, BarPeriod, BarsResponse
+from public_api_sdk.models.historic_data import (
+    Bar,
+    BarAggregation,
+    BarPeriod,
+    BarsResponse,
+    TradingSessionToggle,
+)
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
 from public_api_sdk.models.instrument import Instrument
 from public_api_sdk.models.option import GreeksResponse
@@ -902,6 +908,33 @@ class TestGetBars:
         await self.client.get_bars("AAPL", BarPeriod.YEAR)
         params = self.client.api_client.get.call_args[1]["params"]
         assert params is None
+
+    @pytest.mark.asyncio
+    async def test_passes_trading_session_toggle_as_query_param(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload(period="DAY"))
+        await self.client.get_bars(
+            "AAPL",
+            BarPeriod.DAY,
+            trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+        )
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"tradingSessionToggle": "ALL_SESSIONS"}
+
+    @pytest.mark.asyncio
+    async def test_parses_overnight_sessions(self) -> None:
+        payload = _bars_payload(period="DAY")
+        payload["preMarketOvernight"] = {"expectedBars": 1, "bars": []}
+        payload["postMarketOvernight"] = {"expectedBars": 2, "bars": []}
+        self.client.api_client.get = AsyncMock(return_value=payload)
+        result = await self.client.get_bars(
+            "AAPL",
+            BarPeriod.DAY,
+            trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+        )
+        assert result.pre_market_overnight is not None
+        assert result.pre_market_overnight.expected_bars == 1
+        assert result.post_market_overnight is not None
+        assert result.post_market_overnight.expected_bars == 2
 
     @pytest.mark.asyncio
     async def test_returns_bars_response(self) -> None:

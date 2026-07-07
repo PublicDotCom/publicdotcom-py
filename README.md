@@ -1,12 +1,33 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.17-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.18-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
 # Public API Python SDK
 
 A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, and account management.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Async Quick Start](#async-quick-start)
+- [API Reference](#api-reference)
+  - [Client Configuration](#client-configuration) — API key, token validity, default account
+  - [Account Management](#account-management) — accounts, portfolio, history
+  - [Market Data](#market-data) — quotes, instruments, historic bars
+  - [Options Trading](#options-trading) — expirations, chains, greeks
+  - [Order Management](#order-management) — preflight, spreads, placing & tracking orders
+  - [Price Subscription](#price-subscription)
+- [Async Client](#async-client)
+  - [Configuration](#configuration) & [Context Manager](#context-manager)
+  - [Market Data](#market-data-1) & [Order Placement and Tracking](#order-placement-and-tracking)
+  - [Async Price Subscriptions](#async-price-subscriptions)
+  - [Error Handling (Async)](#error-handling-async)
+- [Examples](#examples)
+- [Error Handling](#error-handling)
+- [Important Notes](#important-notes)
 
 ## Installation
 
@@ -27,7 +48,7 @@ $ pip install -e .
 $ pip install -e ".[dev]"  # for dev dependencies
 
 $ # run example
-$ python example.py
+$ python examples/example.py
 ```
 
 ### Run tests
@@ -62,6 +83,9 @@ from public_api_sdk import OrderInstrument, InstrumentType
 quotes = client.get_quotes([
     OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
 ])
+
+# Clean up when done (cancels subscriptions and releases resources)
+client.close()
 ```
 
 ## Async Quick Start
@@ -141,7 +165,13 @@ The `default_account_number` configuration option simplifies API calls by elimin
 
 ```python
 # With default_account_number configured
-from public_api_sdk import OrderInstrument, InstrumentType
+from public_api_sdk import (
+    PublicApiClient,
+    PublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+    OrderInstrument,
+    InstrumentType,
+)
 
 config = PublicApiClientConfiguration(
     default_account_number="INSERT_ACCOUNT_NUMBER"
@@ -270,6 +300,7 @@ from public_api_sdk import (
     BondInstrumentDetails,
     CryptoInstrumentDetails,
     ShortingAvailability,
+    InstrumentType,
 )
 
 instrument = client.get_instrument(
@@ -279,6 +310,7 @@ instrument = client.get_instrument(
 
 print(f"Symbol: {instrument.instrument.symbol}")
 print(f"Type: {instrument.instrument.type}")
+print(f"Exchange: {instrument.exchange_name}")  # e.g. "NASDAQ"; None when not provided
 print(f"Trading: {instrument.trading}")
 print(f"Fractional Trading: {instrument.fractional_trading}")
 print(f"Option Trading: {instrument.option_trading}")
@@ -319,11 +351,9 @@ instruments = client.get_all_instruments(
 )
 ```
 
-### Options Trading
-
 #### Get Historic Bar Data
 
-Fetch OHLCV bar data for any symbol over a standard time period. The response is split into pre-market, regular-market, and after-hours sessions, each containing a list of `Bar` objects.
+Fetch OHLCV bar data for any symbol over a standard time period. The response is split into three sessions — `bars.pre_market`, `bars.regular_market`, and `bars.after_market` — each containing a list of `Bar` objects.
 
 ```python
 from public_api_sdk import BarPeriod
@@ -335,14 +365,14 @@ for bar in bars.regular_market.bars:
     print(f"  {bar.timestamp}  O={bar.open}  H={bar.high}  L={bar.low}  C={bar.close}  V={bar.volume}")
 ```
 
-Available periods: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `HALF_YEAR`, `YEAR`, `FIVE_YEARS`, `YTD`, `SINCE_PURCHASE`.
+Available periods: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `HALF_YEAR`, `YEAR`, `FIVE_YEARS`, `TEN_YEARS`, `ALL`, `YTD`, `SINCE_PURCHASE`.
 
 ##### Aggregation override
 
 Override the bar size by passing an `aggregation`:
 
 ```python
-from public_api_sdk import BarAggregation
+from public_api_sdk import BarAggregation, BarPeriod
 
 # Today's intraday bars at 5-minute resolution
 bars = client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
@@ -374,6 +404,30 @@ bars = client.get_bars("SPX", BarPeriod.YEAR, instrument_type=InstrumentType.IND
 
 Supported values: `EQUITY`, `CRYPTO`, `OPTION`, `INDEX`. Any other `InstrumentType` raises `ValueError`.
 
+##### Trading session toggle
+
+For DAY equity charts, `trading_session_toggle` controls which sessions are included:
+
+- `TradingSessionToggle.REGULAR_HOURS` — 9:30 AM - 4:00 PM ET only
+- `TradingSessionToggle.REGULAR_AND_EXTENDED_HOURS` — 4:00 AM - 8:00 PM ET (server default when omitted)
+- `TradingSessionToggle.ALL_SESSIONS` — midnight-to-midnight, adding the overnight ATS sessions
+
+```python
+from public_api_sdk import BarPeriod, TradingSessionToggle
+
+bars = client.get_bars(
+    "AAPL",
+    BarPeriod.DAY,
+    trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+)
+
+# Overnight buckets are only populated with ALL_SESSIONS
+if bars.pre_market_overnight:
+    print(f"Overnight 00:00-04:00 bars: {len(bars.pre_market_overnight.bars)}")
+if bars.post_market_overnight:
+    print(f"Overnight 20:00-24:00 bars: {len(bars.post_market_overnight.bars)}")
+```
+
 ##### Last regular trading session close
 
 `bars.last_regular_trading_session_close` is a `LastSessionClose` model (or `None`) carrying the prior session's close price and change:
@@ -399,6 +453,8 @@ if bars.total_gain_loss is not None:
     print(f"Gain/loss since purchase: ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
 ```
 
+### Options Trading
+
 #### Get Option Expirations
 
 Retrieve available option expiration dates for an underlying instrument.
@@ -422,7 +478,7 @@ print(f"Available expirations: {expirations.expirations}")
 Retrieve the option chain for a specific expiration date.
 
 ```python
-from public_api_sdk import OptionChainRequest, InstrumentType
+from public_api_sdk import OptionChainRequest, OrderInstrument, InstrumentType
 
 option_chain = client.get_option_chain(
     OptionChainRequest(
@@ -465,6 +521,7 @@ When placing equity orders, you can optionally specify the market session using 
 
 - `EquityMarketSession.CORE` - Trade during regular market hours (9:30 AM - 4:00 PM ET)
 - `EquityMarketSession.EXTENDED` - Trade during pre-market (4:00 AM - 9:30 AM ET) and after-hours (4:00 PM - 8:00 PM ET)
+- `EquityMarketSession.TWENTY_FOUR_HOURS` - Trade around the clock, including the overnight sessions
 
 ```python
 from public_api_sdk import EquityMarketSession
@@ -474,6 +531,9 @@ equity_market_session=EquityMarketSession.CORE
 
 # For extended hours trading
 equity_market_session=EquityMarketSession.EXTENDED
+
+# For 24-hour trading
+equity_market_session=EquityMarketSession.TWENTY_FOUR_HOURS
 ```
 
 This parameter is optional and applies to both preflight calculations and order placement for equity instruments.
@@ -556,6 +616,20 @@ hypothetical = client.perform_preflight_calculation(
 Calculate estimated costs for complex multi-leg option strategies.
 
 ```python
+from datetime import datetime, timezone
+from decimal import Decimal
+from public_api_sdk import (
+    PreflightMultiLegRequest,
+    OrderLegRequest,
+    LegInstrument,
+    LegInstrumentType,
+    OrderSide,
+    OrderType,
+    OpenCloseIndicator,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+
 preflight_multi = PreflightMultiLegRequest(
     order_type=OrderType.LIMIT,
     expiration=OrderExpirationRequest(
@@ -806,7 +880,17 @@ See `examples/example_strategy_preflight.py` for a complete runnable example tha
 Submit a single-leg equity or option order.
 
 ```python
-from public_api_sdk import OrderRequest, OrderInstrument, InstrumentType, EquityMarketSession
+from public_api_sdk import (
+    OrderRequest,
+    OrderInstrument,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+    EquityMarketSession,
+)
+from decimal import Decimal
 import uuid
 
 order_request = OrderRequest(
@@ -817,12 +901,17 @@ order_request = OrderRequest(
     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
     quantity=10,
     limit_price=Decimal("227.50"),
-    equity_market_session=EquityMarketSession.EXTENDED  # Optional: CORE or EXTENDED
+    equity_market_session=EquityMarketSession.EXTENDED,  # Optional: CORE or EXTENDED
+    # use_margin=False,  # Optional: force cash-only buying power (see note below)
 )
 
-order_response = client.place_order(order_request)
-print(f"Order placed with ID: {order_response.order_id}")
+new_order = client.place_order(order_request)  # returns a NewOrder
+print(f"Order placed with ID: {new_order.order_id}")
 ```
+
+`place_order` returns a `NewOrder` handle you can use to wait for fills, subscribe to status changes, or cancel — see [Tracking Orders with NewOrder](#tracking-orders-with-neworder) below.
+
+> **Margin vs. cash buying power.** `OrderRequest` accepts an optional `use_margin: bool`. When omitted (or `True`), the order is evaluated against margin buying power where the account allows it. Pass `use_margin=False` to force the order to be evaluated using **cash-only** buying power instead. The same flag is accepted on `MultilegOrderRequest`.
 
 ##### Place Short Order
 
@@ -872,7 +961,18 @@ Submit a multi-leg option strategy order.
 
 ```python
 from datetime import datetime, timezone
-from public_api_sdk import MultilegOrderRequest
+from decimal import Decimal
+from public_api_sdk import (
+    MultilegOrderRequest,
+    OrderLegRequest,
+    LegInstrument,
+    LegInstrumentType,
+    OrderSide,
+    OrderType,
+    OpenCloseIndicator,
+    OrderExpirationRequest,
+    TimeInForce,
+)
 import uuid
 
 multileg_order = MultilegOrderRequest(
@@ -910,6 +1010,76 @@ multileg_response = client.place_multileg_order(multileg_order)
 print(f"Multi-leg order placed: {multileg_response.order_id}")
 ```
 
+#### Tracking Orders with NewOrder
+
+Every placement method on the sync client (`place_order`, `place_multileg_order`, the spread helpers, `place_short_order`, and `cancel_and_replace_order`) returns a `NewOrder` — a live handle on the submitted order.
+
+All the wait helpers below tolerate the brief window right after placement where the API hasn't indexed the new order yet (`get_order` returns 404 for a second or two) — you can call them immediately after placing.
+
+##### Waiting for a fill
+
+```python
+from public_api_sdk import WaitTimeoutError
+
+try:
+    # Poll until filled; raises WaitTimeoutError after 60 seconds
+    filled = new_order.wait_for_fill(timeout=60)
+    print(f"Filled at ${filled.average_price}")
+except WaitTimeoutError as e:
+    # e.current_order holds the last-seen order state (may be partially filled)
+    print("Order not filled within 60 seconds")
+    new_order.cancel()
+```
+
+Pass `on_partial_fill` to observe partial fills while waiting:
+
+```python
+def on_partial(order):
+    print(f"Partial fill: {order.filled_quantity} shares so far")
+
+filled = new_order.wait_for_fill(timeout=60, on_partial_fill=on_partial)
+```
+
+##### Waiting for any terminal status
+
+```python
+# FILLED, CANCELLED, REJECTED, EXPIRED, or REPLACED
+result = new_order.wait_for_terminal_status(timeout=120)
+print(f"Final status: {result.status}")
+```
+
+You can also wait for a specific status (or list of statuses) with `wait_for_status`:
+
+```python
+from public_api_sdk import OrderStatus
+
+order = new_order.wait_for_status(OrderStatus.FILLED, timeout=60, polling_interval=1.0)
+```
+
+##### Status update subscriptions
+
+```python
+def on_order_update(update):
+    print(f"{update.old_status} -> {update.new_status}")
+
+subscription_id = new_order.subscribe_updates(on_order_update)
+
+# ... later
+new_order.unsubscribe()
+```
+
+##### Checking status and cancelling
+
+```python
+status = new_order.get_status()     # just the OrderStatus
+details = new_order.get_details()   # full Order: fills, prices, timestamps
+
+new_order.cancel()                  # cancellation is asynchronous — confirm it:
+new_order.wait_for_status(OrderStatus.CANCELLED, timeout=10)
+```
+
+The async client's counterpart is [`AsyncNewOrder`](#order-placement-and-tracking), which exposes the same helpers as coroutines.
+
 #### Get Order Status
 
 Retrieve the status and details of a specific order.
@@ -941,7 +1111,13 @@ Atomically cancel an existing open order and submit a replacement with updated p
 > **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
 
 ```python
-from public_api_sdk import CancelAndReplaceRequest
+from public_api_sdk import (
+    CancelAndReplaceRequest,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+from decimal import Decimal
 import uuid
 
 replacement = client.cancel_and_replace_order(
@@ -980,6 +1156,7 @@ print(f"Status: {details.status}")
 from public_api_sdk import (
     PublicApiClient,
     PublicApiClientConfiguration,
+    ApiKeyAuthConfig,
     OrderInstrument,
     InstrumentType,
     PriceChange,
@@ -1032,6 +1209,15 @@ client.price_stream.subscribe(
 ```python
 # update polling frequency
 client.price_stream.set_polling_frequency(subscription_id, 5.0)
+
+# pause a subscription without cancelling it, then resume later
+client.price_stream.pause(subscription_id)
+client.price_stream.resume(subscription_id)
+
+# inspect a subscription's current settings
+info = client.price_stream.get_subscription_info(subscription_id)
+if info:
+    print(f"Polling every {info.polling_frequency}s")
 
 # get all active subscriptions
 active = client.price_stream.get_active_subscriptions()
@@ -1141,6 +1327,8 @@ print(f"Transactions: {len(history.transactions)}")
 ### Market Data
 
 ```python
+from public_api_sdk import OrderInstrument, InstrumentType
+
 # One-off quotes
 quotes = await client.get_quotes([
     OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY),
@@ -1266,7 +1454,13 @@ Atomically cancel an existing open order and submit a replacement.
 > **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
 
 ```python
-from public_api_sdk import CancelAndReplaceRequest
+from public_api_sdk import (
+    CancelAndReplaceRequest,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+from decimal import Decimal
 import uuid
 
 replacement = await client.cancel_and_replace_order(
@@ -1293,7 +1487,7 @@ The async client exposes `client.price_stream`, an `AsyncPriceStream` instance b
 #### Subscribe
 
 ```python
-from public_api_sdk import PriceChange, SubscriptionConfig
+from public_api_sdk import PriceChange, SubscriptionConfig, OrderInstrument, InstrumentType
 
 async def on_price_change(change: PriceChange) -> None:
     symbol = change.instrument.symbol
@@ -1366,7 +1560,15 @@ await client.price_stream.unsubscribe_all()
 ### Preflight Calculations (Async)
 
 ```python
-from public_api_sdk import PreflightRequest, OrderSide, OrderType, OrderExpirationRequest, TimeInForce
+from public_api_sdk import (
+    PreflightRequest,
+    OrderInstrument,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
 from decimal import Decimal
 
 preflight = await client.perform_preflight_calculation(
@@ -1408,6 +1610,7 @@ print(f"Estimated credit: ${abs(cost):.2f}")
 ### Error Handling (Async)
 
 ```python
+from public_api_sdk import AsyncPublicApiClient
 from public_api_sdk.exceptions import (
     APIError,
     AuthenticationError,
@@ -1466,6 +1669,8 @@ See `example_strategy_preflight.py` for a self-contained example that:
 - Resolves the nearest option expiration automatically
 - Runs all four spread types (CALL/PUT × credit/debit) back-to-back
 
+`example_async_strategy_preflight.py` is the async equivalent, running the same four spreads through the OSI-direct preflight helpers on `AsyncPublicApiClient`.
+
 ### Historic Bar Data Example
 
 See `example_historic_data.py` for a runnable example that demonstrates:
@@ -1483,6 +1688,13 @@ See `example_options.py` for a comprehensive options trading example that shows:
 - Performing multi-leg preflight calculations
 - Placing multi-leg option orders
 
+### Order Status Subscriptions
+
+See `example_order_subscription.py` for three ways to track an order after placement:
+- Callback-based status updates via `new_order.subscribe_updates()`
+- Synchronous waiting with `wait_for_status()` / `wait_for_fill()`
+- Async callbacks on order updates
+
 ### Price Subscription (Sync)
 
 See `example_price_subscription.py` for complete examples including:
@@ -1490,6 +1702,13 @@ See `example_price_subscription.py` for complete examples including:
 - Advanced async callbacks
 - Multiple concurrent subscriptions
 - Custom price alert system
+
+### Price-Triggered Order Bot
+
+See `example_price_triggered_order.py` for a small bot that combines price subscriptions with order placement:
+- Monitors a symbol via `client.price_stream` until a target price is reached
+- Places a limit order when the threshold triggers, then tracks it via `NewOrder`
+- Ships with a `DRY_RUN` guard (defaults to on) so it's safe to run as-is
 
 ### Async Client
 
@@ -1507,7 +1726,7 @@ See `example_async_client.py` for a full async example that demonstrates:
 
 ## Error Handling
 
-All API errors inherit from `APIError` and carry a `status_code` and `response_data` for full context.
+All API errors inherit from `APIError` and carry a `status_code`, `response_data`, and — when the API provides one — a machine-readable `error_code` for full context.
 
 | Exception | HTTP status | Typical cause |
 |-----------|-------------|---------------|
@@ -1519,6 +1738,8 @@ All API errors inherit from `APIError` and carry a `status_code` and `response_d
 | `APIError` | any | Base class; catches all of the above |
 
 ```python
+from decimal import Decimal
+from public_api_sdk import OptionType
 from public_api_sdk.exceptions import (
     APIError,
     AuthenticationError,

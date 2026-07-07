@@ -15,6 +15,7 @@ from public_api_sdk.models.order import (
     OrderType,
 )
 from public_api_sdk.models.instrument_type import InstrumentType
+from public_api_sdk.exceptions import NotFoundError
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +247,42 @@ class TestAsyncNewOrderWaitForFill:
         mock_client.get_order.return_value = _make_order(OrderStatus.NEW)
         with pytest.raises(WaitTimeoutError):
             await new_order.wait_for_fill(timeout=0.05)
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_tolerates_not_yet_indexed_404(self) -> None:
+        """Freshly placed orders 404 briefly; wait_for_fill must keep polling."""
+        new_order, mock_client, _ = _make_async_new_order()
+        mock_client.get_order.side_effect = [
+            NotFoundError("Unknown error", 404, {}),
+            NotFoundError("Unknown error", 404, {}),
+            _make_order(OrderStatus.FILLED),
+        ]
+        result = await new_order.wait_for_fill(timeout=5, polling_interval=0.01)
+        assert result.status == OrderStatus.FILLED
+        assert mock_client.get_order.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_wait_for_status_tolerates_not_yet_indexed_404(self) -> None:
+        """wait_for_status must also survive the post-placement 404 window."""
+        new_order, mock_client, _ = _make_async_new_order()
+        mock_client.get_order.side_effect = [
+            NotFoundError("Unknown error", 404, {}),
+            _make_order(OrderStatus.FILLED),
+        ]
+        result = await new_order.wait_for_status(
+            OrderStatus.FILLED, timeout=5, polling_interval=0.01
+        )
+        assert result.status == OrderStatus.FILLED
+
+    @pytest.mark.asyncio
+    async def test_wait_for_fill_times_out_if_never_indexed(self) -> None:
+        """Persistent 404s end in WaitTimeoutError, not NotFoundError."""
+        new_order, mock_client, _ = _make_async_new_order()
+        mock_client.get_order.side_effect = NotFoundError("Unknown error", 404, {})
+        with pytest.raises(WaitTimeoutError) as exc_info:
+            await new_order.wait_for_fill(timeout=0.05, polling_interval=0.01)
+        assert "not indexed yet" in str(exc_info.value)
+        assert exc_info.value.current_order is None
 
 
 # ---------------------------------------------------------------------------

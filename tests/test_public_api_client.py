@@ -27,6 +27,7 @@ from public_api_sdk.models.historic_data import (
     BarPeriod,
     BarsResponse,
     LastSessionClose,
+    TradingSessionToggle,
 )
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
 from public_api_sdk.models.instrument import Instrument
@@ -337,6 +338,17 @@ class TestGetInstrument:
         result = self.client.get_instrument("AAPL", InstrumentType.EQUITY)
         assert isinstance(result, Instrument)
         assert result.instrument.symbol == "AAPL"
+
+    def test_parses_exchange_name(self) -> None:
+        payload = {**_INSTRUMENT_PAYLOAD, "exchangeName": "NASDAQ"}
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_instrument("AAPL", InstrumentType.EQUITY)
+        assert result.exchange_name == "NASDAQ"
+
+    def test_exchange_name_none_when_absent(self) -> None:
+        self.client.api_client.get = Mock(return_value=_INSTRUMENT_PAYLOAD)
+        result = self.client.get_instrument("AAPL", InstrumentType.EQUITY)
+        assert result.exchange_name is None
 
 
 class TestGetAllInstruments:
@@ -1029,6 +1041,53 @@ class TestGetBars:
         self.client.api_client.get = Mock(return_value=_bars_payload())
         result = self.client.get_bars("AAPL", BarPeriod.YEAR)
         assert result.last_regular_trading_session_close is None
+
+    def test_passes_trading_session_toggle_as_query_param(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload(period="DAY"))
+        self.client.get_bars(
+            "AAPL",
+            BarPeriod.DAY,
+            trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+        )
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"tradingSessionToggle": "ALL_SESSIONS"}
+
+    def test_combines_purchase_date_and_trading_session_toggle(self) -> None:
+        self.client.api_client.get = Mock(
+            return_value=_bars_payload(period="SINCE_PURCHASE")
+        )
+        self.client.get_bars(
+            "AAPL",
+            BarPeriod.SINCE_PURCHASE,
+            purchase_date="2024-03-15",
+            trading_session_toggle=TradingSessionToggle.REGULAR_HOURS,
+        )
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {
+            "purchaseDate": "2024-03-15",
+            "tradingSessionToggle": "REGULAR_HOURS",
+        }
+
+    def test_parses_overnight_sessions(self) -> None:
+        payload = _bars_payload(period="DAY")
+        payload["preMarketOvernight"] = {"expectedBars": 1, "bars": []}
+        payload["postMarketOvernight"] = {"expectedBars": 2, "bars": []}
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_bars(
+            "AAPL",
+            BarPeriod.DAY,
+            trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+        )
+        assert result.pre_market_overnight is not None
+        assert result.pre_market_overnight.expected_bars == 1
+        assert result.post_market_overnight is not None
+        assert result.post_market_overnight.expected_bars == 2
+
+    def test_overnight_sessions_none_when_absent(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        result = self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.pre_market_overnight is None
+        assert result.post_market_overnight is None
 
 
 # ---------------------------------------------------------------------------
