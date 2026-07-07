@@ -1179,6 +1179,15 @@ client.price_stream.subscribe(
 # update polling frequency
 client.price_stream.set_polling_frequency(subscription_id, 5.0)
 
+# pause a subscription without cancelling it, then resume later
+client.price_stream.pause(subscription_id)
+client.price_stream.resume(subscription_id)
+
+# inspect a subscription's current settings
+info = client.price_stream.get_subscription_info(subscription_id)
+if info:
+    print(f"Polling every {info.polling_frequency}s")
+
 # get all active subscriptions
 active = client.price_stream.get_active_subscriptions()
 
