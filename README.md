@@ -48,7 +48,7 @@ $ pip install -e .
 $ pip install -e ".[dev]"  # for dev dependencies
 
 $ # run example
-$ python example.py
+$ python examples/example.py
 ```
 
 ### Run tests
@@ -83,6 +83,9 @@ from public_api_sdk import OrderInstrument, InstrumentType
 quotes = client.get_quotes([
     OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)
 ])
+
+# Clean up when done (cancels subscriptions and releases resources)
+client.close()
 ```
 
 ## Async Quick Start
@@ -1626,6 +1629,8 @@ See `example_strategy_preflight.py` for a self-contained example that:
 - Resolves the nearest option expiration automatically
 - Runs all four spread types (CALL/PUT × credit/debit) back-to-back
 
+`example_async_strategy_preflight.py` is the async equivalent, running the same four spreads through the OSI-direct preflight helpers on `AsyncPublicApiClient`.
+
 ### Historic Bar Data Example
 
 See `example_historic_data.py` for a runnable example that demonstrates:
@@ -1643,6 +1648,13 @@ See `example_options.py` for a comprehensive options trading example that shows:
 - Performing multi-leg preflight calculations
 - Placing multi-leg option orders
 
+### Order Status Subscriptions
+
+See `example_order_subscription.py` for three ways to track an order after placement:
+- Callback-based status updates via `new_order.subscribe_updates()`
+- Synchronous waiting with `wait_for_status()` / `wait_for_fill()`
+- Async callbacks on order updates
+
 ### Price Subscription (Sync)
 
 See `example_price_subscription.py` for complete examples including:
@@ -1650,6 +1662,13 @@ See `example_price_subscription.py` for complete examples including:
 - Advanced async callbacks
 - Multiple concurrent subscriptions
 - Custom price alert system
+
+### Price-Triggered Order Bot
+
+See `example_price_triggered_order.py` for a small bot that combines price subscriptions with order placement:
+- Monitors a symbol via `client.price_stream` until a target price is reached
+- Places a limit order when the threshold triggers, then tracks it via `NewOrder`
+- Ships with a `DRY_RUN` guard (defaults to on) so it's safe to run as-is
 
 ### Async Client
 
