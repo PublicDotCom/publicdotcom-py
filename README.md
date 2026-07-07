@@ -141,7 +141,13 @@ The `default_account_number` configuration option simplifies API calls by elimin
 
 ```python
 # With default_account_number configured
-from public_api_sdk import OrderInstrument, InstrumentType
+from public_api_sdk import (
+    PublicApiClient,
+    PublicApiClientConfiguration,
+    ApiKeyAuthConfig,
+    OrderInstrument,
+    InstrumentType,
+)
 
 config = PublicApiClientConfiguration(
     default_account_number="INSERT_ACCOUNT_NUMBER"
@@ -270,6 +276,7 @@ from public_api_sdk import (
     BondInstrumentDetails,
     CryptoInstrumentDetails,
     ShortingAvailability,
+    InstrumentType,
 )
 
 instrument = client.get_instrument(
@@ -323,7 +330,7 @@ instruments = client.get_all_instruments(
 
 #### Get Historic Bar Data
 
-Fetch OHLCV bar data for any symbol over a standard time period. The response is split into pre-market, regular-market, and after-hours sessions, each containing a list of `Bar` objects.
+Fetch OHLCV bar data for any symbol over a standard time period. The response is split into three sessions — `bars.pre_market`, `bars.regular_market`, and `bars.after_market` — each containing a list of `Bar` objects.
 
 ```python
 from public_api_sdk import BarPeriod
@@ -335,14 +342,14 @@ for bar in bars.regular_market.bars:
     print(f"  {bar.timestamp}  O={bar.open}  H={bar.high}  L={bar.low}  C={bar.close}  V={bar.volume}")
 ```
 
-Available periods: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `HALF_YEAR`, `YEAR`, `FIVE_YEARS`, `YTD`, `SINCE_PURCHASE`.
+Available periods: `DAY`, `WEEK`, `MONTH`, `QUARTER`, `HALF_YEAR`, `YEAR`, `FIVE_YEARS`, `TEN_YEARS`, `ALL`, `YTD`, `SINCE_PURCHASE`.
 
 ##### Aggregation override
 
 Override the bar size by passing an `aggregation`:
 
 ```python
-from public_api_sdk import BarAggregation
+from public_api_sdk import BarAggregation, BarPeriod
 
 # Today's intraday bars at 5-minute resolution
 bars = client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
@@ -422,7 +429,7 @@ print(f"Available expirations: {expirations.expirations}")
 Retrieve the option chain for a specific expiration date.
 
 ```python
-from public_api_sdk import OptionChainRequest, InstrumentType
+from public_api_sdk import OptionChainRequest, OrderInstrument, InstrumentType
 
 option_chain = client.get_option_chain(
     OptionChainRequest(
@@ -556,6 +563,20 @@ hypothetical = client.perform_preflight_calculation(
 Calculate estimated costs for complex multi-leg option strategies.
 
 ```python
+from datetime import datetime, timezone
+from decimal import Decimal
+from public_api_sdk import (
+    PreflightMultiLegRequest,
+    OrderLegRequest,
+    LegInstrument,
+    LegInstrumentType,
+    OrderSide,
+    OrderType,
+    OpenCloseIndicator,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+
 preflight_multi = PreflightMultiLegRequest(
     order_type=OrderType.LIMIT,
     expiration=OrderExpirationRequest(
@@ -806,7 +827,17 @@ See `examples/example_strategy_preflight.py` for a complete runnable example tha
 Submit a single-leg equity or option order.
 
 ```python
-from public_api_sdk import OrderRequest, OrderInstrument, InstrumentType, EquityMarketSession
+from public_api_sdk import (
+    OrderRequest,
+    OrderInstrument,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+    EquityMarketSession,
+)
+from decimal import Decimal
 import uuid
 
 order_request = OrderRequest(
@@ -817,12 +848,15 @@ order_request = OrderRequest(
     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
     quantity=10,
     limit_price=Decimal("227.50"),
-    equity_market_session=EquityMarketSession.EXTENDED  # Optional: CORE or EXTENDED
+    equity_market_session=EquityMarketSession.EXTENDED,  # Optional: CORE or EXTENDED
+    # use_margin=False,  # Optional: force cash-only buying power (see note below)
 )
 
 order_response = client.place_order(order_request)
 print(f"Order placed with ID: {order_response.order_id}")
 ```
+
+> **Margin vs. cash buying power.** `OrderRequest` accepts an optional `use_margin: bool`. When omitted (or `True`), the order is evaluated against margin buying power where the account allows it. Pass `use_margin=False` to force the order to be evaluated using **cash-only** buying power instead. The same flag is accepted on `MultilegOrderRequest`.
 
 ##### Place Short Order
 
@@ -872,7 +906,18 @@ Submit a multi-leg option strategy order.
 
 ```python
 from datetime import datetime, timezone
-from public_api_sdk import MultilegOrderRequest
+from decimal import Decimal
+from public_api_sdk import (
+    MultilegOrderRequest,
+    OrderLegRequest,
+    LegInstrument,
+    LegInstrumentType,
+    OrderSide,
+    OrderType,
+    OpenCloseIndicator,
+    OrderExpirationRequest,
+    TimeInForce,
+)
 import uuid
 
 multileg_order = MultilegOrderRequest(
@@ -941,7 +986,13 @@ Atomically cancel an existing open order and submit a replacement with updated p
 > **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
 
 ```python
-from public_api_sdk import CancelAndReplaceRequest
+from public_api_sdk import (
+    CancelAndReplaceRequest,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+from decimal import Decimal
 import uuid
 
 replacement = client.cancel_and_replace_order(
@@ -980,6 +1031,7 @@ print(f"Status: {details.status}")
 from public_api_sdk import (
     PublicApiClient,
     PublicApiClientConfiguration,
+    ApiKeyAuthConfig,
     OrderInstrument,
     InstrumentType,
     PriceChange,
@@ -1141,6 +1193,8 @@ print(f"Transactions: {len(history.transactions)}")
 ### Market Data
 
 ```python
+from public_api_sdk import OrderInstrument, InstrumentType
+
 # One-off quotes
 quotes = await client.get_quotes([
     OrderInstrument(symbol="MSFT", type=InstrumentType.EQUITY),
@@ -1266,7 +1320,13 @@ Atomically cancel an existing open order and submit a replacement.
 > **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
 
 ```python
-from public_api_sdk import CancelAndReplaceRequest
+from public_api_sdk import (
+    CancelAndReplaceRequest,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
+from decimal import Decimal
 import uuid
 
 replacement = await client.cancel_and_replace_order(
@@ -1293,7 +1353,7 @@ The async client exposes `client.price_stream`, an `AsyncPriceStream` instance b
 #### Subscribe
 
 ```python
-from public_api_sdk import PriceChange, SubscriptionConfig
+from public_api_sdk import PriceChange, SubscriptionConfig, OrderInstrument, InstrumentType
 
 async def on_price_change(change: PriceChange) -> None:
     symbol = change.instrument.symbol
@@ -1366,7 +1426,15 @@ await client.price_stream.unsubscribe_all()
 ### Preflight Calculations (Async)
 
 ```python
-from public_api_sdk import PreflightRequest, OrderSide, OrderType, OrderExpirationRequest, TimeInForce
+from public_api_sdk import (
+    PreflightRequest,
+    OrderInstrument,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+)
 from decimal import Decimal
 
 preflight = await client.perform_preflight_calculation(
@@ -1408,6 +1476,7 @@ print(f"Estimated credit: ${abs(cost):.2f}")
 ### Error Handling (Async)
 
 ```python
+from public_api_sdk import AsyncPublicApiClient
 from public_api_sdk.exceptions import (
     APIError,
     AuthenticationError,
@@ -1519,6 +1588,8 @@ All API errors inherit from `APIError` and carry a `status_code` and `response_d
 | `APIError` | any | Base class; catches all of the above |
 
 ```python
+from decimal import Decimal
+from public_api_sdk import OptionType
 from public_api_sdk.exceptions import (
     APIError,
     AuthenticationError,
