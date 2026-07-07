@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 from .order import Order, OrderStatus
+from ..exceptions import NotFoundError
 
 if TYPE_CHECKING:
     from ..public_api_client import PublicApiClient
@@ -221,20 +222,27 @@ class NewOrder:
             target_statuses = target_status
 
         start_time = time.time()
+        order: Optional[Order] = None
 
         while True:
-            order = self.get_details()
-
-            if order.status in target_statuses:
-                return order
+            try:
+                order = self.get_details()
+            except NotFoundError:
+                # freshly placed orders briefly return 404 until the backend
+                # indexes them — treat as pending and keep polling
+                pass
+            else:
+                if order.status in target_statuses:
+                    return order
 
             # check timeout
             if timeout is not None:
                 elapsed = time.time() - start_time
                 if elapsed >= timeout:
+                    current = order.status if order else "not indexed yet"
                     raise WaitTimeoutError(
                         f"Timeout waiting for order {self._order_id} to reach "
-                        f"status {target_statuses}. Current status: {order.status}"
+                        f"status {target_statuses}. Current status: {current}"
                     )
 
             # sleep before next check
@@ -281,21 +289,28 @@ class NewOrder:
         last_seen_order: Optional["Order"] = None
 
         while True:
-            order = self.get_details()
-            last_seen_order = order
+            try:
+                order = self.get_details()
+            except NotFoundError:
+                # freshly placed orders briefly return 404 until the backend
+                # indexes them — treat as pending and keep polling
+                order = None
+            if order is not None:
+                last_seen_order = order
 
-            if order.status == OrderStatus.FILLED:
-                return order
+                if order.status == OrderStatus.FILLED:
+                    return order
 
-            if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
-                on_partial_fill(order)
+                if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
+                    on_partial_fill(order)
 
             if timeout is not None:
                 elapsed = time.time() - start_time
                 if elapsed >= timeout:
+                    current = order.status if order else "not indexed yet"
                     raise WaitTimeoutError(
                         f"Order {self._order_id} did not fill within {timeout}s. "
-                        f"Current status: {order.status}",
+                        f"Current status: {current}",
                         current_order=last_seen_order,
                     )
 

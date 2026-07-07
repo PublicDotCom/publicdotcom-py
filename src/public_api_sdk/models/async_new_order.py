@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 from .new_order import OrderSubscriptionConfig, OrderUpdateCallback, WaitTimeoutError
 from .order import Order, OrderStatus
+from ..exceptions import NotFoundError
 
 if TYPE_CHECKING:
     from ..async_order_subscription_manager import AsyncOrderSubscriptionManager
@@ -164,17 +165,24 @@ class AsyncNewOrder:
         )
 
         start = time.monotonic()
+        order: Optional[Order] = None
 
         while True:
-            order = await self.get_details()
-
-            if order.status in target_statuses:
-                return order
+            try:
+                order = await self.get_details()
+            except NotFoundError:
+                # freshly placed orders briefly return 404 until the backend
+                # indexes them — treat as pending and keep polling
+                pass
+            else:
+                if order.status in target_statuses:
+                    return order
 
             if timeout is not None and time.monotonic() - start >= timeout:
+                current = order.status if order else "not indexed yet"
                 raise WaitTimeoutError(
                     f"Timeout waiting for order {self._order_id} to reach "
-                    f"status {target_statuses}. Current status: {order.status}"
+                    f"status {target_statuses}. Current status: {current}"
                 )
 
             await asyncio.sleep(polling_interval)
@@ -218,22 +226,29 @@ class AsyncNewOrder:
         last_seen_order: Optional[Order] = None
 
         while True:
-            order = await self.get_details()
-            last_seen_order = order
+            try:
+                order = await self.get_details()
+            except NotFoundError:
+                # freshly placed orders briefly return 404 until the backend
+                # indexes them — treat as pending and keep polling
+                order = None
+            if order is not None:
+                last_seen_order = order
 
-            if order.status == OrderStatus.FILLED:
-                return order
+                if order.status == OrderStatus.FILLED:
+                    return order
 
-            if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
-                if asyncio.iscoroutinefunction(on_partial_fill):
-                    await on_partial_fill(order)
-                else:
-                    on_partial_fill(order)
+                if order.status == OrderStatus.PARTIALLY_FILLED and on_partial_fill:
+                    if asyncio.iscoroutinefunction(on_partial_fill):
+                        await on_partial_fill(order)
+                    else:
+                        on_partial_fill(order)
 
             if timeout is not None and time.monotonic() - start >= timeout:
+                current = order.status if order else "not indexed yet"
                 raise WaitTimeoutError(
                     f"Order {self._order_id} did not fill within {timeout}s. "
-                    f"Current status: {order.status}",
+                    f"Current status: {current}",
                     current_order=last_seen_order,
                 )
 

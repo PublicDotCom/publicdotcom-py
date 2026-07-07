@@ -1014,6 +1014,8 @@ print(f"Multi-leg order placed: {multileg_response.order_id}")
 
 Every placement method on the sync client (`place_order`, `place_multileg_order`, the spread helpers, `place_short_order`, and `cancel_and_replace_order`) returns a `NewOrder` — a live handle on the submitted order.
 
+All the wait helpers below tolerate the brief window right after placement where the API hasn't indexed the new order yet (`get_order` returns 404 for a second or two) — you can call them immediately after placing.
+
 ##### Waiting for a fill
 
 ```python

@@ -18,6 +18,7 @@ from public_api_sdk.models.order import (
     OrderType,
 )
 from public_api_sdk.models.instrument_type import InstrumentType
+from public_api_sdk.exceptions import NotFoundError
 
 
 class TestNewOrder:
@@ -214,6 +215,62 @@ class TestNewOrder:
 
         assert result == rejected_order
         assert result.status == OrderStatus.REJECTED
+
+    def test_wait_for_fill_tolerates_not_yet_indexed_404(self) -> None:
+        """Freshly placed orders 404 briefly; wait_for_fill must keep polling."""
+        filled_order = Order(
+            order_id=self.order_id,
+            instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            type=OrderType.LIMIT,
+            side=OrderSide.BUY,
+            status=OrderStatus.FILLED,
+            quantity=Decimal("10"),
+            filled_quantity=Decimal("10"),
+            average_price=Decimal("149.95"),
+        )
+        self.mock_client.get_order.side_effect = [
+            NotFoundError("Unknown error", 404, {}),
+            NotFoundError("Unknown error", 404, {}),
+            filled_order,
+        ]
+
+        result = self.new_order.wait_for_fill(timeout=5, polling_interval=0.01)
+
+        assert result == filled_order
+        assert self.mock_client.get_order.call_count == 3
+
+    def test_wait_for_status_tolerates_not_yet_indexed_404(self) -> None:
+        """wait_for_status must also survive the post-placement 404 window."""
+        filled_order = Order(
+            order_id=self.order_id,
+            instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            type=OrderType.LIMIT,
+            side=OrderSide.BUY,
+            status=OrderStatus.FILLED,
+            quantity=Decimal("10"),
+        )
+        self.mock_client.get_order.side_effect = [
+            NotFoundError("Unknown error", 404, {}),
+            filled_order,
+        ]
+
+        result = self.new_order.wait_for_status(
+            OrderStatus.FILLED, timeout=5, polling_interval=0.01
+        )
+
+        assert result == filled_order
+
+    def test_wait_for_fill_times_out_if_never_indexed(self) -> None:
+        """Persistent 404s end in WaitTimeoutError, not NotFoundError."""
+        self.mock_client.get_order.side_effect = NotFoundError(
+            "Unknown error", 404, {}
+        )
+
+        with pytest.raises(WaitTimeoutError) as exc_info:
+            self.new_order.wait_for_fill(timeout=0.05, polling_interval=0.01)
+
+        assert "not indexed yet" in str(exc_info.value)
+        assert exc_info.value.current_order is None
 
     def test_cancel(self) -> None:
         """Test cancelling an order."""
