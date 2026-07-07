@@ -8,6 +8,27 @@
 
 A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, and account management.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Async Quick Start](#async-quick-start)
+- [API Reference](#api-reference)
+  - [Client Configuration](#client-configuration) — API key, token validity, default account
+  - [Account Management](#account-management) — accounts, portfolio, history
+  - [Market Data](#market-data) — quotes, instruments, historic bars
+  - [Options Trading](#options-trading) — expirations, chains, greeks
+  - [Order Management](#order-management) — preflight, spreads, placing & tracking orders
+  - [Price Subscription](#price-subscription)
+- [Async Client](#async-client)
+  - [Configuration](#configuration) & [Context Manager](#context-manager)
+  - [Market Data](#market-data-1) & [Order Placement and Tracking](#order-placement-and-tracking)
+  - [Async Price Subscriptions](#async-price-subscriptions)
+  - [Error Handling (Async)](#error-handling-async)
+- [Examples](#examples)
+- [Error Handling](#error-handling)
+- [Important Notes](#important-notes)
+
 ## Installation
 
 ### From PyPI
@@ -326,8 +347,6 @@ instruments = client.get_all_instruments(
 )
 ```
 
-### Options Trading
-
 #### Get Historic Bar Data
 
 Fetch OHLCV bar data for any symbol over a standard time period. The response is split into three sessions — `bars.pre_market`, `bars.regular_market`, and `bars.after_market` — each containing a list of `Bar` objects.
@@ -405,6 +424,8 @@ bars = client.get_bars(
 if bars.total_gain_loss is not None:
     print(f"Gain/loss since purchase: ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
 ```
+
+### Options Trading
 
 #### Get Option Expirations
 
@@ -852,9 +873,11 @@ order_request = OrderRequest(
     # use_margin=False,  # Optional: force cash-only buying power (see note below)
 )
 
-order_response = client.place_order(order_request)
-print(f"Order placed with ID: {order_response.order_id}")
+new_order = client.place_order(order_request)  # returns a NewOrder
+print(f"Order placed with ID: {new_order.order_id}")
 ```
+
+`place_order` returns a `NewOrder` handle you can use to wait for fills, subscribe to status changes, or cancel — see [Tracking Orders with NewOrder](#tracking-orders-with-neworder) below.
 
 > **Margin vs. cash buying power.** `OrderRequest` accepts an optional `use_margin: bool`. When omitted (or `True`), the order is evaluated against margin buying power where the account allows it. Pass `use_margin=False` to force the order to be evaluated using **cash-only** buying power instead. The same flag is accepted on `MultilegOrderRequest`.
 
@@ -954,6 +977,74 @@ multileg_order = MultilegOrderRequest(
 multileg_response = client.place_multileg_order(multileg_order)
 print(f"Multi-leg order placed: {multileg_response.order_id}")
 ```
+
+#### Tracking Orders with NewOrder
+
+Every placement method on the sync client (`place_order`, `place_multileg_order`, the spread helpers, `place_short_order`, and `cancel_and_replace_order`) returns a `NewOrder` — a live handle on the submitted order.
+
+##### Waiting for a fill
+
+```python
+from public_api_sdk import WaitTimeoutError
+
+try:
+    # Poll until filled; raises WaitTimeoutError after 60 seconds
+    filled = new_order.wait_for_fill(timeout=60)
+    print(f"Filled at ${filled.average_price}")
+except WaitTimeoutError as e:
+    # e.current_order holds the last-seen order state (may be partially filled)
+    print("Order not filled within 60 seconds")
+    new_order.cancel()
+```
+
+Pass `on_partial_fill` to observe partial fills while waiting:
+
+```python
+def on_partial(order):
+    print(f"Partial fill: {order.filled_quantity} shares so far")
+
+filled = new_order.wait_for_fill(timeout=60, on_partial_fill=on_partial)
+```
+
+##### Waiting for any terminal status
+
+```python
+# FILLED, CANCELLED, REJECTED, EXPIRED, or REPLACED
+result = new_order.wait_for_terminal_status(timeout=120)
+print(f"Final status: {result.status}")
+```
+
+You can also wait for a specific status (or list of statuses) with `wait_for_status`:
+
+```python
+from public_api_sdk import OrderStatus
+
+order = new_order.wait_for_status(OrderStatus.FILLED, timeout=60, polling_interval=1.0)
+```
+
+##### Status update subscriptions
+
+```python
+def on_order_update(update):
+    print(f"{update.old_status} -> {update.new_status}")
+
+subscription_id = new_order.subscribe_updates(on_order_update)
+
+# ... later
+new_order.unsubscribe()
+```
+
+##### Checking status and cancelling
+
+```python
+status = new_order.get_status()     # just the OrderStatus
+details = new_order.get_details()   # full Order: fills, prices, timestamps
+
+new_order.cancel()                  # cancellation is asynchronous — confirm it:
+new_order.wait_for_status(OrderStatus.CANCELLED, timeout=10)
+```
+
+The async client's counterpart is [`AsyncNewOrder`](#order-placement-and-tracking), which exposes the same helpers as coroutines.
 
 #### Get Order Status
 
