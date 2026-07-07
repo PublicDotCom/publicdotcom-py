@@ -19,6 +19,20 @@ class BarPeriod(str, Enum):
     SINCE_PURCHASE = "SINCE_PURCHASE"
 
 
+class TradingSessionToggle(str, Enum):
+    """Which sessions to include on the DAY equity chart.
+
+    REGULAR_HOURS: 09:30-16:00 ET only.
+    REGULAR_AND_EXTENDED_HOURS: 04:00-20:00 ET (server default when omitted).
+    ALL_SESSIONS: midnight-to-midnight axis, adds the overnight ATS sessions
+        (pre_market_overnight 00:00-04:00 and post_market_overnight 20:00-24:00).
+    """
+
+    REGULAR_HOURS = "REGULAR_HOURS"
+    REGULAR_AND_EXTENDED_HOURS = "REGULAR_AND_EXTENDED_HOURS"
+    ALL_SESSIONS = "ALL_SESSIONS"
+
+
 class BarAggregation(str, Enum):
     ONE_MINUTE = "ONE_MINUTE"
     FIVE_MINUTES = "FIVE_MINUTES"
@@ -136,6 +150,24 @@ class BarsResponse(BaseModel):
         validation_alias=AliasChoices("after_market", "afterMarket"),
         serialization_alias="afterMarket",
         description="After-hours session bars.",
+    )
+    pre_market_overnight: Optional[MarketSessionBars] = Field(
+        None,
+        validation_alias=AliasChoices("pre_market_overnight", "preMarketOvernight"),
+        serialization_alias="preMarketOvernight",
+        description=(
+            "Overnight ATS bars 00:00-04:00 ET. Only present when the request"
+            " uses TradingSessionToggle.ALL_SESSIONS."
+        ),
+    )
+    post_market_overnight: Optional[MarketSessionBars] = Field(
+        None,
+        validation_alias=AliasChoices("post_market_overnight", "postMarketOvernight"),
+        serialization_alias="postMarketOvernight",
+        description=(
+            "Overnight ATS bars 20:00-24:00 ET. Only present when the request"
+            " uses TradingSessionToggle.ALL_SESSIONS."
+        ),
     )
     last_regular_trading_session_close: Optional[LastSessionClose] = Field(
         None,

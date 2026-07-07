@@ -14,6 +14,8 @@ class APIError(Exception):
             non-HTTP errors (e.g. network timeouts).
         response_data: Raw response body parsed as a dict, useful for
             extracting additional error detail provided by the API.
+        error_code: Machine-readable error code from the API response body
+            (the ``errorCode`` field), or ``None`` when absent.
     """
 
     def __init__(
@@ -26,6 +28,7 @@ class APIError(Exception):
         self.message = message
         self.status_code = status_code
         self.response_data = response_data or {}
+        self.error_code: Optional[str] = self.response_data.get("errorCode")
 
     def __str__(self) -> str:
         if self.status_code:

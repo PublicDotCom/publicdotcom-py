@@ -167,6 +167,12 @@ class Instrument(BaseModel):
         serialization_alias="optionContractPriceIncrements",
         description="Price increments for option contracts on this instrument.",
     )
+    exchange_name: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("exchange_name", "exchangeName"),
+        serialization_alias="exchangeName",
+        description="The name of the exchange where the instrument is traded.",
+    )
 
 
 class InstrumentsRequest(BaseModel):

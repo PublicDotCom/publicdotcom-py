@@ -10,6 +10,7 @@ from .models import (
     BarsResponse,
     LastSessionClose,
     MarketSessionBars,
+    TradingSessionToggle,
     BondInstrumentDetails,
     CancelAndReplaceRequest,
     CryptoInstrumentDetails,
@@ -98,6 +99,7 @@ __all__ = [
     "BarsResponse",
     "LastSessionClose",
     "MarketSessionBars",
+    "TradingSessionToggle",
     # Auth
     "AuthConfig",
     "AsyncAuthConfig",

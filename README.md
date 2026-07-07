@@ -310,6 +310,7 @@ instrument = client.get_instrument(
 
 print(f"Symbol: {instrument.instrument.symbol}")
 print(f"Type: {instrument.instrument.type}")
+print(f"Exchange: {instrument.exchange_name}")  # e.g. "NASDAQ"; None when not provided
 print(f"Trading: {instrument.trading}")
 print(f"Fractional Trading: {instrument.fractional_trading}")
 print(f"Option Trading: {instrument.option_trading}")
@@ -402,6 +403,30 @@ bars = client.get_bars("SPX", BarPeriod.YEAR, instrument_type=InstrumentType.IND
 ```
 
 Supported values: `EQUITY`, `CRYPTO`, `OPTION`, `INDEX`. Any other `InstrumentType` raises `ValueError`.
+
+##### Trading session toggle
+
+For DAY equity charts, `trading_session_toggle` controls which sessions are included:
+
+- `TradingSessionToggle.REGULAR_HOURS` — 9:30 AM - 4:00 PM ET only
+- `TradingSessionToggle.REGULAR_AND_EXTENDED_HOURS` — 4:00 AM - 8:00 PM ET (server default when omitted)
+- `TradingSessionToggle.ALL_SESSIONS` — midnight-to-midnight, adding the overnight ATS sessions
+
+```python
+from public_api_sdk import BarPeriod, TradingSessionToggle
+
+bars = client.get_bars(
+    "AAPL",
+    BarPeriod.DAY,
+    trading_session_toggle=TradingSessionToggle.ALL_SESSIONS,
+)
+
+# Overnight buckets are only populated with ALL_SESSIONS
+if bars.pre_market_overnight:
+    print(f"Overnight 00:00-04:00 bars: {len(bars.pre_market_overnight.bars)}")
+if bars.post_market_overnight:
+    print(f"Overnight 20:00-24:00 bars: {len(bars.post_market_overnight.bars)}")
+```
 
 ##### Last regular trading session close
 
@@ -496,6 +521,7 @@ When placing equity orders, you can optionally specify the market session using 
 
 - `EquityMarketSession.CORE` - Trade during regular market hours (9:30 AM - 4:00 PM ET)
 - `EquityMarketSession.EXTENDED` - Trade during pre-market (4:00 AM - 9:30 AM ET) and after-hours (4:00 PM - 8:00 PM ET)
+- `EquityMarketSession.TWENTY_FOUR_HOURS` - Trade around the clock, including the overnight sessions
 
 ```python
 from public_api_sdk import EquityMarketSession
@@ -505,6 +531,9 @@ equity_market_session=EquityMarketSession.CORE
 
 # For extended hours trading
 equity_market_session=EquityMarketSession.EXTENDED
+
+# For 24-hour trading
+equity_market_session=EquityMarketSession.TWENTY_FOUR_HOURS
 ```
 
 This parameter is optional and applies to both preflight calculations and order placement for equity instruments.
@@ -1695,7 +1724,7 @@ See `example_async_client.py` for a full async example that demonstrates:
 
 ## Error Handling
 
-All API errors inherit from `APIError` and carry a `status_code` and `response_data` for full context.
+All API errors inherit from `APIError` and carry a `status_code`, `response_data`, and — when the API provides one — a machine-readable `error_code` for full context.
 
 | Exception | HTTP status | Typical cause |
 |-----------|-------------|---------------|

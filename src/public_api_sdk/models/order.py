@@ -114,6 +114,7 @@ class OpenCloseIndicator(str, Enum):
 class EquityMarketSession(str, Enum):
     CORE = "CORE"
     EXTENDED = "EXTENDED"
+    TWENTY_FOUR_HOURS = "TWENTY_FOUR_HOURS"
 
 class OrderExpiration(BaseModel):
     time_in_force: TimeInForce = Field(..., alias="timeInForce")

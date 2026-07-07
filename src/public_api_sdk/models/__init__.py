@@ -6,6 +6,7 @@ from .historic_data import (
     BarsResponse,
     LastSessionClose,
     MarketSessionBars,
+    TradingSessionToggle,
 )
 from .account import Account, AccountType, AccountsResponse
 from .history import HistoryRequest, HistoryResponsePage
@@ -98,6 +99,7 @@ __all__ = [
     "BarsResponse",
     "LastSessionClose",
     "MarketSessionBars",
+    "TradingSessionToggle",
     "AccessTokenResponse",
     "Account",
     "AccountType",

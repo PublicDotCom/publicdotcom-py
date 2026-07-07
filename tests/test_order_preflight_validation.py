@@ -7,6 +7,7 @@ import pytest
 
 from public_api_sdk.models.order import (
     CancelAndReplaceRequest,
+    EquityMarketSession,
     OpenCloseIndicator,
     OrderRequest,
     PreflightRequest,
@@ -97,6 +98,33 @@ class TestOrderRequestValidation:
             }
         )
         assert order.use_margin is True
+
+    def test_twenty_four_hours_market_session_on_order(self) -> None:
+        """TWENTY_FOUR_HOURS is a valid equity market session on orders."""
+        order = OrderRequest(
+            order_id=self.valid_uuid,
+            instrument=self.base_instrument,
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+            quantity=100,
+            equity_market_session=EquityMarketSession.TWENTY_FOUR_HOURS,
+        )
+        dump = order.model_dump(by_alias=True, exclude_none=True)
+        assert dump["equityMarketSession"] == "TWENTY_FOUR_HOURS"
+
+    def test_twenty_four_hours_market_session_on_preflight(self) -> None:
+        """TWENTY_FOUR_HOURS is a valid equity market session on preflight."""
+        preflight = PreflightRequest(
+            instrument=self.base_instrument,
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            expiration=self.base_expiration,
+            quantity=100,
+            equity_market_session=EquityMarketSession.TWENTY_FOUR_HOURS,
+        )
+        dump = preflight.model_dump(by_alias=True, exclude_none=True)
+        assert dump["equityMarketSession"] == "TWENTY_FOUR_HOURS"
 
 
 class TestSharedValidation:
