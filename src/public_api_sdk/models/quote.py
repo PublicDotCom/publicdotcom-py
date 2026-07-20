@@ -118,6 +118,63 @@ class QuoteOptionDetails(BaseModel):
     )
 
 
+class BondDetails(BaseModel):
+    """Bond-specific details for a quote. All fields optional per the contract."""
+
+    model_config = {"populate_by_name": True}
+
+    ask_min_size: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("ask_min_size", "askMinSize"),
+        serialization_alias="askMinSize",
+        description="Minimum trade size for asks in par value.",
+    )
+    bid_min_size: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("bid_min_size", "bidMinSize"),
+        serialization_alias="bidMinSize",
+        description="Minimum trade size for bids in par value.",
+    )
+    ask_markup: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("ask_markup", "askMarkup"),
+        serialization_alias="askMarkup",
+        description="Ask markup percentage.",
+    )
+    bid_markup: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("bid_markup", "bidMarkup"),
+        serialization_alias="bidMarkup",
+        description="Bid markup percentage.",
+    )
+    suggested_buy_price: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("suggested_buy_price", "suggestedBuyPrice"),
+        serialization_alias="suggestedBuyPrice",
+        description="Suggested buy price for this bond.",
+    )
+    suggested_sell_price: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("suggested_sell_price", "suggestedSellPrice"),
+        serialization_alias="suggestedSellPrice",
+        description="Suggested sell price for this bond.",
+    )
+    min_buy_amount: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("min_buy_amount", "minBuyAmount"),
+        serialization_alias="minBuyAmount",
+        description="Minimum buy amount in dollars.",
+    )
+    min_buy_increment_amount: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices(
+            "min_buy_increment_amount", "minBuyIncrementAmount"
+        ),
+        serialization_alias="minBuyIncrementAmount",
+        description="Minimum buy increment amount in dollars.",
+    )
+
+
 class Quote(BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -220,4 +277,10 @@ class Quote(BaseModel):
         validation_alias=AliasChoices("option_details", "optionDetails"),
         serialization_alias="optionDetails",
         description="Option-specific details: greeks, strike price, and mid price.",
+    )
+    bond_details: Optional[BondDetails] = Field(
+        None,
+        validation_alias=AliasChoices("bond_details", "bondDetails"),
+        serialization_alias="bondDetails",
+        description="Bond-specific details: markup, min size, and suggested prices.",
     )

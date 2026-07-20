@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.18-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.19-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -232,6 +232,11 @@ portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT_NUMBER")  # account_id
 print(f"Total equity: {portfolio.equity}")
 print(f"Buying power: {portfolio.buying_power}")
 
+# Cash, total account value, and withdrawal availability (all optional/nullable)
+print(f"Cash: {portfolio.cash}, total value: {portfolio.total_account_value}")
+if portfolio.available_to_withdraw:
+    print(f"Available to withdraw: {portfolio.available_to_withdraw.available_to_withdraw}")
+
 # Positions include the strategy IDs they belong to (empty list if not part of any strategy)
 for position in portfolio.positions:
     if position.strategy_ids:
@@ -257,6 +262,34 @@ history = client.get_history(
     HistoryRequest(page_size=10),
     account_id="YOUR_ACCOUNT"
 )
+```
+
+#### Get Unrealized Tax Lots
+
+Retrieve unrealized tax lots for an account. Requires the `portfolio` scope. Money and quantity fields are exposed as `Decimal`; `date` fields (`as_of`, `open_date`, `expiration_date`) are plain `YYYY-MM-DD` strings.
+
+```python
+# Account-wide summary of unrealized lots, grouped by symbol.
+summary = client.get_unrealized_tax_lots(account_id="YOUR_ACCOUNT")
+print(f"As of {summary.as_of}, total P/L: {summary.total_profit_loss}")
+for lot in summary.lots:
+    print(f"{lot.symbol}: {lot.quantity} @ unit cost {lot.unit_cost}, gain/loss {lot.gain_loss}")
+
+# Per-symbol detail — every individual lot for the symbol.
+# Pass an optional `price` to recompute current value and gain/loss at that price.
+detail = client.get_unrealized_tax_lots_for_symbol(
+    "AAPL", account_id="YOUR_ACCOUNT", price="160.00"
+)
+for lot in detail.lots or []:
+    print(f"opened {lot.open_date} ({lot.term}): {lot.quantity} shares, gain/loss {lot.gain_loss}")
+
+# CSV export, base64-encoded.
+import base64
+
+csv_file = client.get_unrealized_tax_lots_csv(account_id="YOUR_ACCOUNT")
+if csv_file.base64_data:
+    with open(csv_file.file_name or "tax_lots.csv", "wb") as fh:
+        fh.write(base64.b64decode(csv_file.base64_data))
 ```
 
 ### Market Data
@@ -290,6 +323,13 @@ if quote.option_details:
 ```
 
 > All fields on `GreekValues` are optional — the API may omit greeks for illiquid or expired contracts. Always guard with `if quote.option_details.greeks:` before reading individual values.
+
+For bond quotes, `quote.bond_details` exposes bond-specific pricing (markup, minimum size, and suggested prices). All of its fields are optional strings:
+
+```python
+if quote.bond_details:
+    print(f"Ask markup: {quote.bond_details.ask_markup}, min buy: {quote.bond_details.min_buy_amount}")
+```
 
 #### Get Instrument Details
 
@@ -511,6 +551,45 @@ greeks_response = client.get_option_greeks(
 for greek in greeks_response.greeks:
     if greek.greeks:
         print(f"{greek.symbol}: Δ={greek.greeks.delta} Γ={greek.greeks.gamma} IV={greek.greeks.implied_volatility}")
+```
+
+#### Get Strategy Quote
+
+Get combined pricing for a multi-leg option strategy, including a signed quote for each leg. The spec's leg model is exposed as `StrategyOrderLeg` (renamed to avoid colliding with the order `OrderLeg`).
+
+```python
+from public_api_sdk import (
+    OpenCloseIndicator,
+    OrderSide,
+    StrategyOrderLeg,
+    StrategyQuoteRequest,
+)
+
+quote = client.get_strategy_quote(
+    StrategyQuoteRequest(
+        base_symbol="AAPL",
+        option_legs=[
+            StrategyOrderLeg(
+                symbol="AAPL260116C00190000",
+                side=OrderSide.BUY,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            ),
+            StrategyOrderLeg(
+                symbol="AAPL260116C00200000",
+                side=OrderSide.SELL,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            ),
+        ],
+    ),
+    account_id="YOUR_ACCOUNT",
+)
+print(f"{quote.strategy_name}: price {quote.price}, bid {quote.bid}, ask {quote.ask} ({quote.debit_credit})")
+for leg in quote.strategy_legs:
+    signed = leg.quote
+    if signed:
+        print(f"  {leg.side} {leg.ratio_quantity}x {leg.instrument.symbol}: bid {signed.bid} / ask {signed.ask}")
 ```
 
 ### Order Management
@@ -912,6 +991,25 @@ print(f"Order placed with ID: {new_order.order_id}")
 `place_order` returns a `NewOrder` handle you can use to wait for fills, subscribe to status changes, or cancel — see [Tracking Orders with NewOrder](#tracking-orders-with-neworder) below.
 
 > **Margin vs. cash buying power.** `OrderRequest` accepts an optional `use_margin: bool`. When omitted (or `True`), the order is evaluated against margin buying power where the account allows it. Pass `use_margin=False` to force the order to be evaluated using **cash-only** buying power instead. The same flag is accepted on `MultilegOrderRequest`.
+
+> **Tax-lot selection.** `OrderRequest` (and `PreflightRequest`) accept an optional `tax_lot_matching_instructions: list[GatewayTaxLotMatchingInstruction]` to pick which lots to close. Instructions are only valid for **SELL equity** orders with `open_close_indicator=CLOSE`, on `MARKET` or good-for-day `LIMIT` orders; at most 8 per request, all for the order's symbol, with quantities summing to the order quantity, and only when the tax-lot data was updated today.
+>
+> ```python
+> from public_api_sdk import GatewayTaxLotMatchingInstruction, OpenCloseIndicator
+>
+> sell_request = OrderRequest(
+>     order_id=str(uuid.uuid4()),
+>     instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+>     order_side=OrderSide.SELL,
+>     order_type=OrderType.MARKET,
+>     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+>     quantity=Decimal("10"),
+>     open_close_indicator=OpenCloseIndicator.CLOSE,
+>     tax_lot_matching_instructions=[
+>         GatewayTaxLotMatchingInstruction(tax_lot_id="AAPL;2024-01-15;150.00;10", quantity="10"),
+>     ],
+> )
+> ```
 
 ##### Place Short Order
 

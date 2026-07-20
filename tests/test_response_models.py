@@ -964,3 +964,483 @@ class TestPreflightResponseNewFieldsDeserialization:
         response = PreflightResponse(**self._base_payload())
         assert response.estimated_execution_fee is None
         assert response.short_selling is None
+
+
+# ---------------------------------------------------------------------------
+# Quote — bondDetails
+# ---------------------------------------------------------------------------
+
+
+class TestQuoteBondDetailsDeserialization:
+    def test_bond_details(self) -> None:
+        from public_api_sdk.models.quote import BondDetails
+
+        payload = {
+            "instrument": {"symbol": "US912828XYZ", "type": "BOND"},
+            "outcome": "SUCCESS",
+            "bondDetails": {
+                "askMinSize": "1000",
+                "bidMinSize": "1000",
+                "askMarkup": "0.5",
+                "bidMarkup": "0.4",
+                "suggestedBuyPrice": "99.50",
+                "suggestedSellPrice": "99.10",
+                "minBuyAmount": "1000.00",
+                "minBuyIncrementAmount": "100.00",
+            },
+        }
+        quote = Quote(**payload)
+        assert isinstance(quote.bond_details, BondDetails)
+        assert quote.bond_details.ask_min_size == "1000"
+        assert quote.bond_details.bid_markup == "0.4"
+        assert quote.bond_details.suggested_buy_price == "99.50"
+        assert quote.bond_details.min_buy_increment_amount == "100.00"
+
+    def test_bond_details_absent(self) -> None:
+        payload = {
+            "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+            "outcome": "SUCCESS",
+        }
+        quote = Quote(**payload)
+        assert quote.bond_details is None
+
+    def test_bond_details_partial(self) -> None:
+        payload = {
+            "instrument": {"symbol": "US912828XYZ", "type": "BOND"},
+            "outcome": "SUCCESS",
+            "bondDetails": {"askMarkup": "0.5"},
+        }
+        quote = Quote(**payload)
+        assert quote.bond_details is not None
+        assert quote.bond_details.ask_markup == "0.5"
+        assert quote.bond_details.bid_markup is None
+
+
+# ---------------------------------------------------------------------------
+# Portfolio — availableToWithdraw, cash, totalAccountValue
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioWithdrawalFieldsDeserialization:
+    def _base_payload(self) -> dict:
+        return {
+            "accountId": "ACC-001",
+            "accountType": "BROKERAGE",
+            "buyingPower": {
+                "cashOnlyBuyingPower": "10000.00",
+                "buyingPower": "20000.00",
+                "optionsBuyingPower": "5000.00",
+            },
+            "equity": [],
+            "positions": [],
+            "orders": [],
+        }
+
+    def test_available_to_withdraw(self) -> None:
+        from public_api_sdk.models.portfolio import AvailableToWithdraw
+
+        payload = self._base_payload()
+        payload["cash"] = "1234.56"
+        payload["totalAccountValue"] = "54321.00"
+        payload["availableToWithdraw"] = {
+            "cashOnlyAvailableToWithdraw": "1000.00",
+            "availableToWithdraw": "2000.00",
+        }
+        portfolio = Portfolio(**payload)
+        assert portfolio.cash == Decimal("1234.56")
+        assert portfolio.total_account_value == Decimal("54321.00")
+        assert isinstance(portfolio.available_to_withdraw, AvailableToWithdraw)
+        assert portfolio.available_to_withdraw.available_to_withdraw == Decimal(
+            "2000.00"
+        )
+        assert (
+            portfolio.available_to_withdraw.cash_only_available_to_withdraw
+            == Decimal("1000.00")
+        )
+
+    def test_withdrawal_fields_absent(self) -> None:
+        portfolio = Portfolio(**self._base_payload())
+        assert portfolio.cash is None
+        assert portfolio.total_account_value is None
+        assert portfolio.available_to_withdraw is None
+
+    def test_nullable_fields_explicit_null(self) -> None:
+        payload = self._base_payload()
+        payload["cash"] = None
+        payload["totalAccountValue"] = None
+        payload["availableToWithdraw"] = None
+        portfolio = Portfolio(**payload)
+        assert portfolio.cash is None
+        assert portfolio.total_account_value is None
+        assert portfolio.available_to_withdraw is None
+
+
+# ---------------------------------------------------------------------------
+# Tax lots
+# ---------------------------------------------------------------------------
+
+
+class TestUnrealizedTaxLotsDeserialization:
+    def test_summary_response_full(self) -> None:
+        from public_api_sdk.models.order import OptionType
+        from public_api_sdk.models.tax_lots import (
+            OptionSpecificTaxLotDetails,
+            OutOfDateStatus,
+            OutOfDateStatusType,
+            UnrealizedLotsSummaryResponse,
+        )
+
+        payload = {
+            "asOf": "2026-07-18",
+            "shortTerm": "10.00",
+            "longTerm": "20.00",
+            "sixtyFortyTerm": "5.00",
+            "totalProfitLoss": "35.00",
+            "lots": [
+                {
+                    "accountNumber": "ACC-001",
+                    "symbol": "AAPL",
+                    "cusip": "037833100",
+                    "companyName": "Apple Inc.",
+                    "quantity": "10",
+                    "costBasis": "1500.00",
+                    "unitCost": "150.00",
+                    "currentPrice": "160.00",
+                    "currentValue": "1600.00",
+                    "gainLoss": "100.00",
+                    "shortTermGainLoss": "100.00",
+                    "longTermGainLoss": "0.00",
+                    "lotSelectionId": "lot-123",
+                    "details": {
+                        "payloadType": "Option",
+                        "rootSymbol": "AAPL",
+                        "strikePrice": "270.00",
+                        "expirationDate": "2026-01-16",
+                        "optionType": "CALL",
+                    },
+                    "outOfDateStatus": {
+                        "type": "ORDER_OR_TRADE_ON_SYMBOL_TODAY",
+                        "order": {"id": "ORD-1", "description": "Sell 10 AAPL"},
+                        "description": {
+                            "header": "Pending order",
+                            "body": "An order was placed today.",
+                        },
+                    },
+                }
+            ],
+        }
+        response = UnrealizedLotsSummaryResponse(**payload)
+        assert response.as_of == "2026-07-18"
+        assert response.sixty_forty_term == Decimal("5.00")
+        assert response.total_profit_loss == Decimal("35.00")
+        lot = response.lots[0]
+        assert lot.account_number == "ACC-001"
+        assert lot.quantity == Decimal("10")
+        assert lot.current_value == Decimal("1600.00")
+        assert lot.lot_selection_id == "lot-123"
+        assert isinstance(lot.details, OptionSpecificTaxLotDetails)
+        assert lot.details.strike_price == Decimal("270.00")
+        assert lot.details.option_type == OptionType.CALL
+        assert lot.details.expiration_date == "2026-01-16"
+        assert isinstance(lot.out_of_date_status, OutOfDateStatus)
+        assert lot.out_of_date_status.type == (
+            OutOfDateStatusType.ORDER_OR_TRADE_ON_SYMBOL_TODAY
+        )
+        assert lot.out_of_date_status.order is not None
+        assert lot.out_of_date_status.order.id == "ORD-1"
+        assert lot.out_of_date_status.description is not None
+        assert lot.out_of_date_status.description.header == "Pending order"
+
+    def test_summary_lot_optional_fields_absent(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsSummaryResponse
+
+        payload = {
+            "asOf": "2026-07-18",
+            "shortTerm": "0.00",
+            "longTerm": "0.00",
+            "sixtyFortyTerm": "0.00",
+            "totalProfitLoss": "0.00",
+            "lots": [
+                {
+                    "accountNumber": "ACC-001",
+                    "symbol": "AAPL",
+                    "cusip": "037833100",
+                    "companyName": "Apple Inc.",
+                    "quantity": "10",
+                    "costBasis": "1500.00",
+                    "unitCost": "150.00",
+                    "currentPrice": "160.00",
+                    "currentValue": "1600.00",
+                    "gainLoss": "100.00",
+                    "shortTermGainLoss": "100.00",
+                    "longTermGainLoss": "0.00",
+                }
+            ],
+        }
+        response = UnrealizedLotsSummaryResponse(**payload)
+        lot = response.lots[0]
+        assert lot.details is None
+        assert lot.lot_selection_id is None
+        assert lot.out_of_date_status is None
+
+    def test_detail_response_full(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsDetailResponse
+
+        payload = {
+            "asOf": "2026-07-18",
+            "symbol": "AAPL",
+            "companyName": "Apple Inc.",
+            "lots": [
+                {
+                    "quantity": "5",
+                    "costBasis": "750.00",
+                    "unitCost": "150.00",
+                    "currentPrice": "160.00",
+                    "currentValue": "800.00",
+                    "gainLoss": "50.00",
+                    "openDate": "2024-06-01",
+                    "term": "SHORT",
+                    "washSale": True,
+                    "shortTermGainLoss": "50.00",
+                    "longTermGainLoss": "0.00",
+                    "openBuyPrice": "150.00",
+                    "lotSelectionId": "lot-9",
+                }
+            ],
+        }
+        response = UnrealizedLotsDetailResponse(**payload)
+        assert response.symbol == "AAPL"
+        assert response.lots is not None
+        lot = response.lots[0]
+        assert lot.quantity == Decimal("5")
+        assert lot.open_date == "2024-06-01"
+        assert lot.term == "SHORT"
+        assert lot.wash_sale is True
+        assert lot.open_buy_price == Decimal("150.00")
+        assert lot.lot_selection_id == "lot-9"
+
+    def test_detail_response_minimal(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsDetailResponse
+
+        payload = {
+            "asOf": "2026-07-18",
+            "symbol": "AAPL",
+            "companyName": "Apple Inc.",
+        }
+        response = UnrealizedLotsDetailResponse(**payload)
+        assert response.lots is None
+        assert response.details is None
+
+    def test_base64_file(self) -> None:
+        from public_api_sdk.models.tax_lots import Base64File
+
+        b = Base64File(**{"fileName": "lots.csv", "base64Data": "aGVsbG8="})
+        assert b.file_name == "lots.csv"
+        assert b.base64_data == "aGVsbG8="
+
+    def test_base64_file_empty(self) -> None:
+        from public_api_sdk.models.tax_lots import Base64File
+
+        b = Base64File(**{})
+        assert b.file_name is None
+        assert b.base64_data is None
+
+
+# ---------------------------------------------------------------------------
+# Strategy quote (StrategyQuoteDto and nested models)
+# ---------------------------------------------------------------------------
+
+
+class TestStrategyQuoteDtoDeserialization:
+    def test_full_dto(self) -> None:
+        from public_api_sdk.models.order import (
+            OpenCloseIndicator,
+            OptionType,
+            OrderSide,
+        )
+        from public_api_sdk.models.strategy_quote import (
+            BondQuoteDetail,
+            DebitCredit,
+            SignedQuote,
+            StrategyLegDto,
+            StrategyLegInstrumentDto,
+            StrategyQuoteDto,
+        )
+
+        payload = {
+            "debitCredit": "CREDIT",
+            "strategyLegs": [
+                {
+                    "instrument": {
+                        "symbol": "AAPL260116C00270000",
+                        "baseSymbol": "AAPL",
+                        "type": "CALL",
+                        "strikePrice": "270.00",
+                        "expirationDate": "2026-01-16",
+                    },
+                    "side": "SELL",
+                    "openCloseIndicator": "OPEN",
+                    "ratioQuantity": 1,
+                    "quote": {
+                        "symbol": "AAPL260116C00270000",
+                        "timestamp": "2026-07-18T12:00:00Z",
+                        "signature": "sig-abc",
+                        "bid": "3.10",
+                        "ask": "3.30",
+                        "bidSize": "10",
+                        "askSize": "12",
+                        "openInterest": 4200,
+                        "tradingHalted": False,
+                        "uptickRule": "NOT_TRIGGERED",
+                        "detail": {
+                            "type": "BondQuoteDetail",
+                            "askMinSize": "1",
+                            "bidMinSize": "1",
+                            "askMarkup": "0.1",
+                            "bidMarkup": "0.1",
+                        },
+                    },
+                }
+            ],
+            "price": "3.20",
+            "bid": "3.20",
+            "ask": "3.30",
+            "mark": "3.25",
+            "strategyName": "Short Call",
+            "expirationDate": "2026-01-16",
+        }
+        dto = StrategyQuoteDto(**payload)
+        assert dto.debit_credit == DebitCredit.CREDIT
+        assert dto.price == Decimal("3.20")
+        assert dto.mark == Decimal("3.25")
+        assert dto.strategy_name == "Short Call"
+        assert dto.expiration_date == "2026-01-16"
+        leg = dto.strategy_legs[0]
+        assert isinstance(leg, StrategyLegDto)
+        assert leg.side == OrderSide.SELL
+        assert leg.open_close_indicator == OpenCloseIndicator.OPEN
+        assert leg.ratio_quantity == 1
+        assert isinstance(leg.instrument, StrategyLegInstrumentDto)
+        assert leg.instrument.type == OptionType.CALL
+        assert leg.instrument.strike_price == Decimal("270.00")
+        assert isinstance(leg.quote, SignedQuote)
+        assert leg.quote.bid == Decimal("3.10")
+        assert leg.quote.bid_size == Decimal("10")
+        assert leg.quote.open_interest == 4200
+        assert leg.quote.trading_halted is False
+        assert isinstance(leg.quote.detail, BondQuoteDetail)
+        assert leg.quote.detail.type == "BondQuoteDetail"
+        assert leg.quote.detail.ask_min_size == "1"
+
+    def test_dto_minimal(self) -> None:
+        from public_api_sdk.models.strategy_quote import StrategyQuoteDto
+
+        payload = {
+            "strategyLegs": [
+                {
+                    "instrument": {"symbol": "AAPL"},
+                    "side": "BUY",
+                    "ratioQuantity": 1,
+                }
+            ],
+            "price": "1.00",
+            "bid": "1.00",
+            "ask": "1.10",
+            "strategyName": "Long Call",
+        }
+        dto = StrategyQuoteDto(**payload)
+        assert dto.debit_credit is None
+        assert dto.equity_quote is None
+        assert dto.mark is None
+        assert dto.expiration_date is None
+        leg = dto.strategy_legs[0]
+        assert leg.quote is None
+        assert leg.open_close_indicator is None
+        assert leg.instrument.base_symbol is None
+        assert leg.instrument.type is None
+
+    def test_dto_with_equity_quote(self) -> None:
+        from public_api_sdk.models.strategy_quote import StrategyQuoteDto
+
+        payload = {
+            "strategyLegs": [
+                {
+                    "instrument": {"symbol": "AAPL260116C00270000"},
+                    "side": "BUY",
+                    "ratioQuantity": 1,
+                }
+            ],
+            "equityQuote": {
+                "instrument": {"symbol": "AAPL"},
+                "side": "SELL",
+                "ratioQuantity": 100,
+            },
+            "price": "1.00",
+            "bid": "1.00",
+            "ask": "1.10",
+            "strategyName": "Covered Call",
+        }
+        dto = StrategyQuoteDto(**payload)
+        assert dto.equity_quote is not None
+        assert dto.equity_quote.ratio_quantity == 100
+
+
+class TestStrategyQuoteRequestSerialization:
+    def test_serializes_with_equity_leg(self) -> None:
+        from public_api_sdk.models.order import OpenCloseIndicator, OrderSide
+        from public_api_sdk.models.strategy_quote import (
+            StrategyOrderLeg,
+            StrategyQuoteRequest,
+        )
+
+        request = StrategyQuoteRequest(
+            base_symbol="AAPL",
+            option_legs=[
+                StrategyOrderLeg(
+                    symbol="AAPL260116C00270000",
+                    side=OrderSide.BUY,
+                    open_close_indicator=OpenCloseIndicator.OPEN,
+                    ratio_quantity=1,
+                )
+            ],
+            equity_leg=StrategyOrderLeg(
+                symbol="AAPL",
+                side=OrderSide.SELL,
+                ratio_quantity=100,
+            ),
+        )
+        assert request.model_dump(by_alias=True, exclude_none=True) == {
+            "baseSymbol": "AAPL",
+            "optionLegs": [
+                {
+                    "symbol": "AAPL260116C00270000",
+                    "side": "BUY",
+                    "openCloseIndicator": "OPEN",
+                    "ratioQuantity": 1,
+                }
+            ],
+            "equityLeg": {
+                "symbol": "AAPL",
+                "side": "SELL",
+                "ratioQuantity": 100,
+            },
+        }
+
+    def test_accepts_camelcase_input(self) -> None:
+        from public_api_sdk.models.strategy_quote import StrategyQuoteRequest
+
+        request = StrategyQuoteRequest(
+            **{
+                "baseSymbol": "AAPL",
+                "optionLegs": [
+                    {
+                        "symbol": "AAPL260116C00270000",
+                        "side": "BUY",
+                        "openCloseIndicator": "OPEN",
+                        "ratioQuantity": 1,
+                    }
+                ],
+            }
+        )
+        assert request.base_symbol == "AAPL"
+        assert request.option_legs[0].symbol == "AAPL260116C00270000"
