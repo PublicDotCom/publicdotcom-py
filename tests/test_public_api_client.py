@@ -1107,3 +1107,332 @@ class TestClose:
         client._subscription_manager.stop.assert_called_once()
         client._order_subscription_manager.stop.assert_called_once()
         client.api_client.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tax lots
+# ---------------------------------------------------------------------------
+
+
+def _taxlots_summary_payload() -> dict:
+    return {
+        "asOf": "2026-07-18",
+        "shortTerm": "10.00",
+        "longTerm": "20.00",
+        "sixtyFortyTerm": "0.00",
+        "totalProfitLoss": "30.00",
+        "lots": [
+            {
+                "accountNumber": _ACCOUNT,
+                "symbol": "AAPL",
+                "cusip": "037833100",
+                "companyName": "Apple Inc.",
+                "quantity": "10",
+                "costBasis": "1500.00",
+                "unitCost": "150.00",
+                "currentPrice": "160.00",
+                "currentValue": "1600.00",
+                "gainLoss": "100.00",
+                "shortTermGainLoss": "100.00",
+                "longTermGainLoss": "0.00",
+            }
+        ],
+    }
+
+
+def _taxlots_detail_payload() -> dict:
+    return {
+        "asOf": "2026-07-18",
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "lots": [
+            {
+                "quantity": "10",
+                "costBasis": "1500.00",
+                "unitCost": "150.00",
+                "currentPrice": "160.00",
+                "currentValue": "1600.00",
+                "gainLoss": "100.00",
+                "openDate": "2024-01-15",
+                "term": "LONG",
+                "shortTermGainLoss": "0.00",
+                "longTermGainLoss": "100.00",
+            }
+        ],
+    }
+
+
+class TestGetUnrealizedTaxLots:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_summary_payload())
+        self.client.get_unrealized_tax_lots()
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/unrealized"
+
+    def test_returns_summary_response(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsSummaryResponse
+
+        self.client.api_client.get = Mock(return_value=_taxlots_summary_payload())
+        result = self.client.get_unrealized_tax_lots()
+        assert isinstance(result, UnrealizedLotsSummaryResponse)
+        assert result.total_profit_loss == Decimal("30.00")
+        assert result.lots[0].symbol == "AAPL"
+        assert result.lots[0].gain_loss == Decimal("100.00")
+
+    def test_uses_explicit_account(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_summary_payload())
+        self.client.get_unrealized_tax_lots(account_id="OTHER_ACC")
+        url = self.client.api_client.get.call_args[0][0]
+        assert "/OTHER_ACC/taxlots/unrealized" in url
+
+    def test_refreshes_token(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_summary_payload())
+        self.client.get_unrealized_tax_lots()
+        self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+
+class TestGetUnrealizedTaxLotsForSymbol:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_detail_payload())
+        self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/unrealized/AAPL"
+
+    def test_omits_price_param_when_absent(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_detail_payload())
+        self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params is None
+
+    def test_passes_price_query_param(self) -> None:
+        self.client.api_client.get = Mock(return_value=_taxlots_detail_payload())
+        self.client.get_unrealized_tax_lots_for_symbol("AAPL", price="160.00")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"price": "160.00"}
+
+    def test_returns_detail_response(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsDetailResponse
+
+        self.client.api_client.get = Mock(return_value=_taxlots_detail_payload())
+        result = self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        assert isinstance(result, UnrealizedLotsDetailResponse)
+        assert result.symbol == "AAPL"
+        assert result.lots is not None
+        assert result.lots[0].open_date == "2024-01-15"
+        assert result.lots[0].term == "LONG"
+
+
+class TestGetUnrealizedTaxLotsCsv:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = Mock(
+            return_value={"fileName": "lots.csv", "base64Data": "aGVsbG8="}
+        )
+        self.client.get_unrealized_tax_lots_csv()
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/csv/unrealized"
+
+    def test_returns_base64_file(self) -> None:
+        from public_api_sdk.models.tax_lots import Base64File
+
+        self.client.api_client.get = Mock(
+            return_value={"fileName": "lots.csv", "base64Data": "aGVsbG8="}
+        )
+        result = self.client.get_unrealized_tax_lots_csv()
+        assert isinstance(result, Base64File)
+        assert result.file_name == "lots.csv"
+        assert result.base64_data == "aGVsbG8="
+
+
+# ---------------------------------------------------------------------------
+# get_strategy_quote
+# ---------------------------------------------------------------------------
+
+
+def _strategy_quote_payload() -> dict:
+    return {
+        "debitCredit": "DEBIT",
+        "strategyLegs": [
+            {
+                "instrument": {
+                    "symbol": "AAPL260116C00270000",
+                    "baseSymbol": "AAPL",
+                    "type": "CALL",
+                    "strikePrice": "270.00",
+                    "expirationDate": "2026-01-16",
+                },
+                "side": "BUY",
+                "openCloseIndicator": "OPEN",
+                "ratioQuantity": 1,
+                "quote": {
+                    "symbol": "AAPL260116C00270000",
+                    "timestamp": "2026-07-18T12:00:00Z",
+                    "signature": "sig-abc",
+                    "bid": "3.10",
+                    "ask": "3.30",
+                },
+            }
+        ],
+        "price": "3.20",
+        "bid": "3.20",
+        "ask": "3.30",
+        "strategyName": "Long Call",
+    }
+
+
+def _strategy_request() -> "StrategyQuoteRequest":
+    from public_api_sdk.models.strategy_quote import (
+        StrategyOrderLeg,
+        StrategyQuoteRequest,
+    )
+
+    return StrategyQuoteRequest(
+        base_symbol="AAPL",
+        option_legs=[
+            StrategyOrderLeg(
+                symbol="AAPL260116C00270000",
+                side=OrderSide.BUY,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            )
+        ],
+    )
+
+
+class TestGetStrategyQuote:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.post = Mock(return_value=_strategy_quote_payload())
+        self.client.get_strategy_quote(_strategy_request())
+        url = self.client.api_client.post.call_args[0][0]
+        assert url == (
+            f"/userapigateway/option-details/{_ACCOUNT}"
+            "/strategy-details/quote"
+        )
+
+    def test_sends_serialized_body(self) -> None:
+        self.client.api_client.post = Mock(return_value=_strategy_quote_payload())
+        self.client.get_strategy_quote(_strategy_request())
+        json_data = self.client.api_client.post.call_args[1]["json_data"]
+        assert json_data == {
+            "baseSymbol": "AAPL",
+            "optionLegs": [
+                {
+                    "symbol": "AAPL260116C00270000",
+                    "side": "BUY",
+                    "openCloseIndicator": "OPEN",
+                    "ratioQuantity": 1,
+                }
+            ],
+        }
+
+    def test_returns_strategy_quote_dto(self) -> None:
+        from public_api_sdk.models.strategy_quote import (
+            DebitCredit,
+            StrategyQuoteDto,
+        )
+
+        self.client.api_client.post = Mock(return_value=_strategy_quote_payload())
+        result = self.client.get_strategy_quote(_strategy_request())
+        assert isinstance(result, StrategyQuoteDto)
+        assert result.price == Decimal("3.20")
+        assert result.debit_credit == DebitCredit.DEBIT
+        assert result.strategy_legs[0].quote is not None
+        assert result.strategy_legs[0].quote.bid == Decimal("3.10")
+
+    def test_uses_explicit_account(self) -> None:
+        self.client.api_client.post = Mock(return_value=_strategy_quote_payload())
+        self.client.get_strategy_quote(_strategy_request(), account_id="OTHER_ACC")
+        url = self.client.api_client.post.call_args[0][0]
+        assert "/OTHER_ACC/strategy-details/quote" in url
+
+    def test_refreshes_token(self) -> None:
+        self.client.api_client.post = Mock(return_value=_strategy_quote_payload())
+        self.client.get_strategy_quote(_strategy_request())
+        self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# place_order / preflight — tax-lot matching instructions
+# ---------------------------------------------------------------------------
+
+
+class TestTaxLotMatchingInstructions:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    def test_place_order_serializes_instructions(self) -> None:
+        from public_api_sdk.models.order import GatewayTaxLotMatchingInstruction
+
+        request = OrderRequest(
+            order_id=_VALID_UUID,
+            instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            order_side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            quantity=Decimal("10"),
+            open_close_indicator=OpenCloseIndicator.CLOSE,
+            tax_lot_matching_instructions=[
+                GatewayTaxLotMatchingInstruction(
+                    tax_lot_id="AAPL;2024-01-15;150.00;10", quantity="10"
+                )
+            ],
+        )
+        self.client.api_client.post = Mock(return_value={"orderId": "ORDER-123"})
+        self.client.place_order(request)
+        json_data = self.client.api_client.post.call_args[1]["json_data"]
+        assert json_data["taxLotMatchingInstructions"] == [
+            {"taxLotId": "AAPL;2024-01-15;150.00;10", "quantity": "10"}
+        ]
+
+    def test_place_order_omits_instructions_when_absent(self) -> None:
+        request = OrderRequest(
+            order_id=_VALID_UUID,
+            instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            quantity=Decimal("10"),
+        )
+        self.client.api_client.post = Mock(return_value={"orderId": "ORDER-123"})
+        self.client.place_order(request)
+        json_data = self.client.api_client.post.call_args[1]["json_data"]
+        assert "taxLotMatchingInstructions" not in json_data
+
+    def test_preflight_serializes_instructions(self) -> None:
+        from public_api_sdk.models.order import GatewayTaxLotMatchingInstruction
+
+        request = PreflightRequest(
+            instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+            order_side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+            quantity=Decimal("10"),
+            open_close_indicator=OpenCloseIndicator.CLOSE,
+            tax_lot_matching_instructions=[
+                GatewayTaxLotMatchingInstruction(
+                    tax_lot_id="AAPL;2024-01-15;150.00;10", quantity="10"
+                )
+            ],
+        )
+        self.client.api_client.post = Mock(
+            return_value={
+                "instrument": {"symbol": "AAPL", "type": "EQUITY"},
+                "orderValue": "1600.00",
+            }
+        )
+        self.client.perform_preflight_calculation(request)
+        json_data = self.client.api_client.post.call_args[1]["json_data"]
+        assert json_data["taxLotMatchingInstructions"] == [
+            {"taxLotId": "AAPL;2024-01-15;150.00;10", "quantity": "10"}
+        ]

@@ -31,6 +31,24 @@ class BuyingPower(BaseModel):
     )
 
 
+class AvailableToWithdraw(BaseModel):
+    """Available-to-withdraw summary for an account."""
+
+    cash_only_available_to_withdraw: Decimal = Field(
+        ...,
+        alias="cashOnlyAvailableToWithdraw",
+        description=(
+            "Available to withdraw on cash only. If the account does not have"
+            " margin investing enabled, this equals availableToWithdraw."
+        ),
+    )
+    available_to_withdraw: Decimal = Field(
+        ...,
+        alias="availableToWithdraw",
+        description="Total amount available to withdraw.",
+    )
+
+
 class AssetType(str, Enum):
     CASH = "CASH"
     JIKO_ACCOUNT = "JIKO_ACCOUNT"
@@ -213,4 +231,18 @@ class Portfolio(BaseModel):
             "List of multi-leg option strategies. Null if the backend does not"
             " support strategies for this account."
         ),
+    )
+    cash: Optional[Decimal] = Field(
+        None,
+        description="Cash value from the account summary. Null if unavailable.",
+    )
+    total_account_value: Optional[Decimal] = Field(
+        None,
+        alias="totalAccountValue",
+        description="Total account value. Null if unavailable.",
+    )
+    available_to_withdraw: Optional[AvailableToWithdraw] = Field(
+        None,
+        alias="availableToWithdraw",
+        description="Available-to-withdraw summary. Null if unavailable.",
     )

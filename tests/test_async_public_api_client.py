@@ -955,3 +955,249 @@ class TestGetBars:
         assert bar.open == Decimal("185.00")
         assert bar.close == Decimal("186.50")
         assert bar.volume == Decimal("6321507.562155")
+
+
+# ---------------------------------------------------------------------------
+# Tax lots
+# ---------------------------------------------------------------------------
+
+
+def _taxlots_summary_payload() -> dict:
+    return {
+        "asOf": "2026-07-18",
+        "shortTerm": "10.00",
+        "longTerm": "20.00",
+        "sixtyFortyTerm": "0.00",
+        "totalProfitLoss": "30.00",
+        "lots": [
+            {
+                "accountNumber": _ACCOUNT,
+                "symbol": "AAPL",
+                "cusip": "037833100",
+                "companyName": "Apple Inc.",
+                "quantity": "10",
+                "costBasis": "1500.00",
+                "unitCost": "150.00",
+                "currentPrice": "160.00",
+                "currentValue": "1600.00",
+                "gainLoss": "100.00",
+                "shortTermGainLoss": "100.00",
+                "longTermGainLoss": "0.00",
+            }
+        ],
+    }
+
+
+def _taxlots_detail_payload() -> dict:
+    return {
+        "asOf": "2026-07-18",
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "lots": [
+            {
+                "quantity": "10",
+                "costBasis": "1500.00",
+                "unitCost": "150.00",
+                "currentPrice": "160.00",
+                "currentValue": "1600.00",
+                "gainLoss": "100.00",
+                "openDate": "2024-01-15",
+                "term": "LONG",
+                "shortTermGainLoss": "0.00",
+                "longTermGainLoss": "100.00",
+            }
+        ],
+    }
+
+
+class TestAsyncGetUnrealizedTaxLots:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    @pytest.mark.asyncio
+    async def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_summary_payload())
+        await self.client.get_unrealized_tax_lots()
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/unrealized"
+
+    @pytest.mark.asyncio
+    async def test_returns_summary_response(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsSummaryResponse
+
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_summary_payload())
+        result = await self.client.get_unrealized_tax_lots()
+        assert isinstance(result, UnrealizedLotsSummaryResponse)
+        assert result.total_profit_loss == Decimal("30.00")
+        assert result.lots[0].gain_loss == Decimal("100.00")
+
+    @pytest.mark.asyncio
+    async def test_refreshes_token(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_summary_payload())
+        await self.client.get_unrealized_tax_lots()
+        self.client.auth_manager.refresh_token_if_needed.assert_called()
+
+
+class TestAsyncGetUnrealizedTaxLotsForSymbol:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    @pytest.mark.asyncio
+    async def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_detail_payload())
+        await self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/unrealized/AAPL"
+
+    @pytest.mark.asyncio
+    async def test_omits_price_param_when_absent(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_detail_payload())
+        await self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params is None
+
+    @pytest.mark.asyncio
+    async def test_passes_price_query_param(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_detail_payload())
+        await self.client.get_unrealized_tax_lots_for_symbol("AAPL", price="160.00")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"price": "160.00"}
+
+    @pytest.mark.asyncio
+    async def test_returns_detail_response(self) -> None:
+        from public_api_sdk.models.tax_lots import UnrealizedLotsDetailResponse
+
+        self.client.api_client.get = AsyncMock(return_value=_taxlots_detail_payload())
+        result = await self.client.get_unrealized_tax_lots_for_symbol("AAPL")
+        assert isinstance(result, UnrealizedLotsDetailResponse)
+        assert result.symbol == "AAPL"
+        assert result.lots is not None
+        assert result.lots[0].open_date == "2024-01-15"
+
+
+class TestAsyncGetUnrealizedTaxLotsCsv:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    @pytest.mark.asyncio
+    async def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.get = AsyncMock(
+            return_value={"fileName": "lots.csv", "base64Data": "aGVsbG8="}
+        )
+        await self.client.get_unrealized_tax_lots_csv()
+        url = self.client.api_client.get.call_args[0][0]
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/taxlots/csv/unrealized"
+
+    @pytest.mark.asyncio
+    async def test_returns_base64_file(self) -> None:
+        from public_api_sdk.models.tax_lots import Base64File
+
+        self.client.api_client.get = AsyncMock(
+            return_value={"fileName": "lots.csv", "base64Data": "aGVsbG8="}
+        )
+        result = await self.client.get_unrealized_tax_lots_csv()
+        assert isinstance(result, Base64File)
+        assert result.base64_data == "aGVsbG8="
+
+
+# ---------------------------------------------------------------------------
+# get_strategy_quote
+# ---------------------------------------------------------------------------
+
+
+def _strategy_quote_payload() -> dict:
+    return {
+        "debitCredit": "DEBIT",
+        "strategyLegs": [
+            {
+                "instrument": {
+                    "symbol": "AAPL260116C00270000",
+                    "baseSymbol": "AAPL",
+                    "type": "CALL",
+                    "strikePrice": "270.00",
+                    "expirationDate": "2026-01-16",
+                },
+                "side": "BUY",
+                "openCloseIndicator": "OPEN",
+                "ratioQuantity": 1,
+                "quote": {
+                    "symbol": "AAPL260116C00270000",
+                    "timestamp": "2026-07-18T12:00:00Z",
+                    "signature": "sig-abc",
+                    "bid": "3.10",
+                    "ask": "3.30",
+                },
+            }
+        ],
+        "price": "3.20",
+        "bid": "3.20",
+        "ask": "3.30",
+        "strategyName": "Long Call",
+    }
+
+
+def _strategy_request():
+    from public_api_sdk.models.strategy_quote import (
+        StrategyOrderLeg,
+        StrategyQuoteRequest,
+    )
+
+    return StrategyQuoteRequest(
+        base_symbol="AAPL",
+        option_legs=[
+            StrategyOrderLeg(
+                symbol="AAPL260116C00270000",
+                side=OrderSide.BUY,
+                open_close_indicator=OpenCloseIndicator.OPEN,
+                ratio_quantity=1,
+            )
+        ],
+    )
+
+
+class TestAsyncGetStrategyQuote:
+    def setup_method(self) -> None:
+        self.client = _make_client()
+
+    @pytest.mark.asyncio
+    async def test_calls_correct_endpoint(self) -> None:
+        self.client.api_client.post = AsyncMock(return_value=_strategy_quote_payload())
+        await self.client.get_strategy_quote(_strategy_request())
+        url = self.client.api_client.post.call_args[0][0]
+        assert url == (
+            f"/userapigateway/option-details/{_ACCOUNT}/strategy-details/quote"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sends_serialized_body(self) -> None:
+        self.client.api_client.post = AsyncMock(return_value=_strategy_quote_payload())
+        await self.client.get_strategy_quote(_strategy_request())
+        json_data = self.client.api_client.post.call_args[1]["json_data"]
+        assert json_data == {
+            "baseSymbol": "AAPL",
+            "optionLegs": [
+                {
+                    "symbol": "AAPL260116C00270000",
+                    "side": "BUY",
+                    "openCloseIndicator": "OPEN",
+                    "ratioQuantity": 1,
+                }
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_returns_strategy_quote_dto(self) -> None:
+        from public_api_sdk.models.strategy_quote import StrategyQuoteDto
+
+        self.client.api_client.post = AsyncMock(return_value=_strategy_quote_payload())
+        result = await self.client.get_strategy_quote(_strategy_request())
+        assert isinstance(result, StrategyQuoteDto)
+        assert result.price == Decimal("3.20")
+        assert result.strategy_legs[0].quote is not None
+        assert result.strategy_legs[0].quote.ask == Decimal("3.30")
+
+    @pytest.mark.asyncio
+    async def test_refreshes_token(self) -> None:
+        self.client.api_client.post = AsyncMock(return_value=_strategy_quote_payload())
+        await self.client.get_strategy_quote(_strategy_request())
+        self.client.auth_manager.refresh_token_if_needed.assert_called()

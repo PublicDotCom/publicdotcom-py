@@ -22,6 +22,7 @@ from .models import (
     BarAggregation,
     BarPeriod,
     BarsResponse,
+    Base64File,
     CancelAndReplaceRequest,
     EquityMarketSession,
     GreeksResponse,
@@ -49,8 +50,12 @@ from .models import (
     PreflightResponse,
     Quote,
     QuoteRequest,
+    StrategyQuoteDto,
+    StrategyQuoteRequest,
     TimeInForce,
     TradingSessionToggle,
+    UnrealizedLotsDetailResponse,
+    UnrealizedLotsSummaryResponse,
 )
 from .models.async_new_order import AsyncNewOrder
 from .short_order import (
@@ -226,6 +231,73 @@ class AsyncPublicApiClient:
             f"/userapigateway/trading/{account_id}/portfolio/v2"
         )
         return Portfolio(**response)
+
+    async def get_unrealized_tax_lots(
+        self, account_id: Optional[str] = None
+    ) -> UnrealizedLotsSummaryResponse:
+        """Retrieve an overview of unrealized tax lots for an account. Async.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            account_id: Account ID (optional when default_account_number is set)
+
+        Returns:
+            UnrealizedLotsSummaryResponse with per-symbol lot summaries and totals
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/unrealized"
+        )
+        return UnrealizedLotsSummaryResponse(**response)
+
+    async def get_unrealized_tax_lots_for_symbol(
+        self,
+        symbol: str,
+        account_id: Optional[str] = None,
+        price: Optional[str] = None,
+    ) -> UnrealizedLotsDetailResponse:
+        """Retrieve detailed unrealized tax lots for a specific symbol. Async.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            symbol: The ticker to retrieve lots for.
+            account_id: Account ID (optional when default_account_number is set)
+            price: Optional explicit price used to calculate gain/loss.
+
+        Returns:
+            UnrealizedLotsDetailResponse with the individual lots for the symbol
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        params = {"price": price} if price is not None else None
+        response = await self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/unrealized/{symbol}",
+            params=params,
+        )
+        return UnrealizedLotsDetailResponse(**response)
+
+    async def get_unrealized_tax_lots_csv(
+        self, account_id: Optional[str] = None
+    ) -> Base64File:
+        """Retrieve unrealized tax lots for an account as a base64 CSV. Async.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            account_id: Account ID (optional when default_account_number is set)
+
+        Returns:
+            Base64File whose ``base64_data`` holds the base64-encoded CSV export
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/csv/unrealized"
+        )
+        return Base64File(**response)
 
     async def get_history(
         self,
@@ -466,6 +538,28 @@ class AsyncPublicApiClient:
         if not greeks_response.greeks:
             raise ValueError(f"No greeks found for symbol: {osi_symbol}")
         return greeks_response.greeks[0]
+
+    async def get_strategy_quote(
+        self,
+        request: StrategyQuoteRequest,
+        account_id: Optional[str] = None,
+    ) -> StrategyQuoteDto:
+        """Get a quote for a multi-leg option strategy. Async.
+
+        Args:
+            request: StrategyQuoteRequest describing the base symbol and legs.
+            account_id: Account ID (optional when default_account_number is set)
+
+        Returns:
+            StrategyQuoteDto with the strategy price, bid/ask, and per-leg quotes
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.post(
+            f"/userapigateway/option-details/{account_id}/strategy-details/quote",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        return StrategyQuoteDto(**response)
 
     # ------------------------------------------------------------------ #
     # Preflight calculations                                               #

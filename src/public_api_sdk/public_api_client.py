@@ -10,6 +10,7 @@ from .models import (
     BarAggregation,
     BarPeriod,
     BarsResponse,
+    Base64File,
     CancelAndReplaceRequest,
     EquityMarketSession,
     GreeksResponse,
@@ -38,8 +39,12 @@ from .models import (
     PreflightResponse,
     Quote,
     QuoteRequest,
+    StrategyQuoteDto,
+    StrategyQuoteRequest,
     TimeInForce,
     TradingSessionToggle,
+    UnrealizedLotsDetailResponse,
+    UnrealizedLotsSummaryResponse,
 )
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
@@ -189,6 +194,74 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/portfolio/v2"
         )
         return Portfolio(**response)
+
+    def get_unrealized_tax_lots(
+        self, account_id: Optional[str] = None
+    ) -> UnrealizedLotsSummaryResponse:
+        """Retrieve an overview of unrealized tax lots for an account.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            UnrealizedLotsSummaryResponse with per-symbol lot summaries and totals
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/unrealized"
+        )
+        return UnrealizedLotsSummaryResponse(**response)
+
+    def get_unrealized_tax_lots_for_symbol(
+        self,
+        symbol: str,
+        account_id: Optional[str] = None,
+        price: Optional[str] = None,
+    ) -> UnrealizedLotsDetailResponse:
+        """Retrieve detailed unrealized tax lots for a specific symbol.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            symbol: The ticker to retrieve lots for.
+            account_id: Account ID (optional if `default_account_number` is set)
+            price: Optional explicit price used to calculate gain/loss. When
+                supplied, the current price and gain/loss reflect this value.
+
+        Returns:
+            UnrealizedLotsDetailResponse with the individual lots for the symbol
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        params = {"price": price} if price is not None else None
+        response = self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/unrealized/{symbol}",
+            params=params,
+        )
+        return UnrealizedLotsDetailResponse(**response)
+
+    def get_unrealized_tax_lots_csv(
+        self, account_id: Optional[str] = None
+    ) -> Base64File:
+        """Retrieve unrealized tax lots for an account as a base64-encoded CSV.
+
+        Requires the ``portfolio`` scope.
+
+        Args:
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            Base64File whose ``base64_data`` holds the base64-encoded CSV export
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            f"/userapigateway/trading/{account_id}/taxlots/csv/unrealized"
+        )
+        return Base64File(**response)
 
     def get_history(
         self,
@@ -405,6 +478,31 @@ class PublicApiClient:
         if not greeks_response.greeks:
             raise ValueError(f"No greeks found for symbol: {osi_symbol}")
         return greeks_response.greeks[0]
+
+    def get_strategy_quote(
+        self,
+        request: StrategyQuoteRequest,
+        account_id: Optional[str] = None,
+    ) -> StrategyQuoteDto:
+        """Get a quote for a multi-leg option strategy.
+
+        Returns combined pricing for the strategy along with a signed quote for
+        each leg.
+
+        Args:
+            request: StrategyQuoteRequest describing the base symbol and legs.
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            StrategyQuoteDto with the strategy price, bid/ask, and per-leg quotes
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.post(
+            f"/userapigateway/option-details/{account_id}/strategy-details/quote",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        return StrategyQuoteDto(**response)
 
     def perform_preflight_calculation(
         self,

@@ -177,6 +177,37 @@ class OrderExpirationRequest(BaseModel):
         )
 
 
+class GatewayTaxLotMatchingInstruction(BaseModel):
+    """Tax-lot matching instruction for an order (request model).
+
+    Rules enforced server-side: at most 8 per request; only for SELL equity
+    orders with `openCloseIndicator=CLOSE`; all for the same symbol as the
+    order; only for MARKET or good-for-day LIMIT orders; the quantities must
+    sum to the order quantity; and only when the tax-lot information has been
+    updated today. There is no guarantee the instructions are applied exactly
+    as specified.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    tax_lot_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("tax_lot_id", "taxLotId"),
+        serialization_alias="taxLotId",
+        description=(
+            "The tax lot id in the format: symbol;tradeDate;price;quantity"
+            ' (e.g., "AAPL;2024-01-15;150.00;10").'
+        ),
+    )
+    quantity: str = Field(
+        ...,
+        description=(
+            "The quantity of the equity. Must be greater than 0 and not exceed"
+            " the quantity of the tax lot."
+        ),
+    )
+
+
 class PreflightRequest(OrderValidationMixin, BaseModel):
     model_config = {"populate_by_name": True}
     instrument: OrderInstrument = Field(...)
@@ -245,6 +276,20 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
             " (buying power, permissions, etc.). Defaults to true on the server."
             " Set to false for hypothetical 'what-if' calculations."
         ),
+    )
+    tax_lot_matching_instructions: Optional[List[GatewayTaxLotMatchingInstruction]] = (
+        Field(
+            None,
+            validation_alias=AliasChoices(
+                "tax_lot_matching_instructions", "taxLotMatchingInstructions"
+            ),
+            serialization_alias="taxLotMatchingInstructions",
+            description=(
+                "Tax lot matching instructions for this order. See"
+                " GatewayTaxLotMatchingInstruction for the detailed rules and"
+                " constraints."
+            ),
+        )
     )
 
     @field_serializer("order_side")
@@ -544,6 +589,20 @@ class OrderRequest(OrderValidationMixin, BaseModel):
             "of margin buying power when available. If True or omitted, margin will be "
             "applied when allowed by the account configuration."
         ),
+    )
+    tax_lot_matching_instructions: Optional[List[GatewayTaxLotMatchingInstruction]] = (
+        Field(
+            None,
+            validation_alias=AliasChoices(
+                "tax_lot_matching_instructions", "taxLotMatchingInstructions"
+            ),
+            serialization_alias="taxLotMatchingInstructions",
+            description=(
+                "Tax lot matching instructions for this order. See"
+                " GatewayTaxLotMatchingInstruction for the detailed rules and"
+                " constraints."
+            ),
+        )
     )
 
     @field_serializer("order_side")
