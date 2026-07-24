@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.19-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.20-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -266,7 +266,7 @@ history = client.get_history(
 
 #### Get Unrealized Tax Lots
 
-Retrieve unrealized tax lots for an account. Requires the `portfolio` scope. Money and quantity fields are exposed as `Decimal`; `date` fields (`as_of`, `open_date`, `expiration_date`) are plain `YYYY-MM-DD` strings.
+Retrieve unrealized tax lots for an account. Requires the `trading.read` scope. Money and quantity fields are exposed as `Decimal`; `date` fields (`as_of`, `open_date`, `expiration_date`) are plain `YYYY-MM-DD` strings.
 
 ```python
 # Account-wide summary of unrealized lots, grouped by symbol.
