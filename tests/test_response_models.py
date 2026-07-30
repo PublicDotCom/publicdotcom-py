@@ -86,6 +86,13 @@ class TestAccountsResponseDeserialization:
         assert account.brokerage_account_type is None
         assert account.trade_permissions is None
 
+    def test_entity_account(self) -> None:
+        payload = {"accounts": [{"accountId": "ACC-003", "accountType": "ENTITY"}]}
+        response = AccountsResponse(**payload)
+        account = response.accounts[0]
+        assert account.account_id == "ACC-003"
+        assert account.account_type == AccountType.ENTITY
+
     def test_multiple_accounts(self) -> None:
         payload = {
             "accounts": [
@@ -111,6 +118,7 @@ class TestAccountsResponseDeserialization:
             "TREASURY",
             "TRADITIONAL_IRA",
             "ROTH_IRA",
+            "ENTITY",
         ]
         for account_type in types:
             account = Account(accountId="ACC", accountType=account_type)
@@ -196,6 +204,12 @@ class TestPortfolioDeserialization:
         portfolio = Portfolio(**payload)
         assert len(portfolio.orders) == 1
         assert portfolio.orders[0].order_id == "ORDER-1"
+
+    def test_entity_account_type(self) -> None:
+        payload = self._base_payload()
+        payload["accountType"] = "ENTITY"
+        portfolio = Portfolio(**payload)
+        assert portfolio.account_type == AccountType.ENTITY
 
 
 # ---------------------------------------------------------------------------

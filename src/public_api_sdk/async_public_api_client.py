@@ -237,7 +237,7 @@ class AsyncPublicApiClient:
     ) -> UnrealizedLotsSummaryResponse:
         """Retrieve an overview of unrealized tax lots for an account. Async.
 
-        Requires the ``portfolio`` scope.
+        Requires the ``trading.read`` scope.
 
         Args:
             account_id: Account ID (optional when default_account_number is set)
@@ -260,7 +260,7 @@ class AsyncPublicApiClient:
     ) -> UnrealizedLotsDetailResponse:
         """Retrieve detailed unrealized tax lots for a specific symbol. Async.
 
-        Requires the ``portfolio`` scope.
+        Requires the ``trading.read`` scope.
 
         Args:
             symbol: The ticker to retrieve lots for.
@@ -284,7 +284,7 @@ class AsyncPublicApiClient:
     ) -> Base64File:
         """Retrieve unrealized tax lots for an account as a base64 CSV. Async.
 
-        Requires the ``portfolio`` scope.
+        Requires the ``trading.read`` scope.
 
         Args:
             account_id: Account ID (optional when default_account_number is set)
