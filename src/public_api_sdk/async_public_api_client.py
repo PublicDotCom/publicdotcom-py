@@ -23,6 +23,9 @@ from .models import (
     BarPeriod,
     BarsResponse,
     Base64File,
+    BondDetailsResponse,
+    BondSearchRequest,
+    BondSearchResponsePage,
     CancelAndReplaceRequest,
     EquityMarketSession,
     GreeksResponse,
@@ -372,6 +375,55 @@ class AsyncPublicApiClient:
             f"/userapigateway/trading/instruments/{symbol}/{instrument_type.value}"
         )
         return Instrument(**response)
+
+    async def search_bonds(
+        self,
+        bond_search_request: Optional[BondSearchRequest] = None,
+    ) -> BondSearchResponsePage:
+        """Filtered search for fixed income instruments.
+
+        Returns a paged list of fixed income instruments from the bonds hub
+        with support for filtering, sorting, and pagination.
+
+        Args:
+            bond_search_request: Optional filters, sorting, and pagination
+                (see `BondSearchRequest`)
+
+        Returns:
+            BondSearchResponsePage with the matching bond instruments
+        """
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            "/userapigateway/trading/instruments/bonds",
+            params=(
+                bond_search_request.model_dump(by_alias=True, exclude_none=True)
+                if bond_search_request
+                else None
+            ),
+        )
+        return BondSearchResponsePage(**response)
+
+    async def get_bond_details(
+        self, symbol: str, account_id: Optional[str] = None
+    ) -> BondDetailsResponse:
+        """Retrieve bond details.
+
+        Returns comprehensive bond instrument details including pricing,
+        ratings, and maturity information. Requires the `marketdata` scope.
+
+        Args:
+            symbol: Bond symbol (typically CUSIP-BOND format)
+            account_id: Account ID (optional when default_account_number is set)
+
+        Returns:
+            BondDetailsResponse for the requested bond
+        """
+        account_id = self._get_account_id(account_id)
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            f"/userapigateway/marketdata/{account_id}/bond-details/{symbol}"
+        )
+        return BondDetailsResponse(**response)
 
     # ------------------------------------------------------------------ #
     # Market data                                                          #
@@ -1074,6 +1126,12 @@ class AsyncPublicApiClient:
         account_id: Optional[str] = None,
     ) -> AsyncNewOrder:
         """Cancel an existing order and replace it with a new one atomically.
+
+        A replacement lets you modify an open order (for example, its quantity
+        or price) without cancelling and resubmitting it manually. Replacement
+        is asynchronous — the response confirms submission only; use
+        `get_order` to verify the order status or execution details after
+        replacement. Supported for equity, option, and crypto quantity orders.
 
         Args:
             request: CancelAndReplaceRequest with the existing order ID, a unique

@@ -556,8 +556,30 @@ class TestCancelAndReplaceRequestValidation:
             expiration=self.base_expiration,
         )
         assert req.quantity is None
+        assert req.amount is None
         assert req.limit_price is None
         assert req.stop_price is None
+
+    def test_amount_only_is_valid(self) -> None:
+        req = self._make_request(amount=Decimal("500"))
+        assert req.amount == Decimal("500")
+        assert req.quantity is None
+
+    def test_quantity_and_amount_are_mutually_exclusive(self) -> None:
+        with pytest.raises(
+            ValueError, match="quantity and amount are mutually exclusive"
+        ):
+            self._make_request(quantity=Decimal("10"), amount=Decimal("500"))
+
+    def test_amount_serialized_with_two_decimal_places(self) -> None:
+        req = self._make_request(amount=Decimal("500"))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert data["amount"] == "500.00"
+
+    def test_omitted_amount_is_excluded_from_payload(self) -> None:
+        req = self._make_request(quantity=Decimal("10"))
+        data = req.model_dump(by_alias=True, exclude_none=True)
+        assert "amount" not in data
 
     def test_invalid_order_id_uuid_raises(self) -> None:
         with pytest.raises(ValueError, match="order_id must be a valid UUID"):

@@ -11,6 +11,9 @@ from .models import (
     BarPeriod,
     BarsResponse,
     Base64File,
+    BondDetailsResponse,
+    BondSearchRequest,
+    BondSearchResponsePage,
     CancelAndReplaceRequest,
     EquityMarketSession,
     GreeksResponse,
@@ -271,8 +274,10 @@ class PublicApiClient:
         """
         Retrieve account history.
 
-        Fetches a paginated list of historical events for the specified account.
-        Supports optional time range filtering and pagination via a continuation token.
+        Fetches a paginated list of historical account events — including
+        trades, money movements, and position adjustments — for the specified
+        account. Supports optional time-range filtering (start/end) and
+        pagination via the nextToken continuation token.
         """
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
@@ -292,7 +297,7 @@ class PublicApiClient:
         account_id: Optional[str] = None,
     ) -> InstrumentsResponse:
         """
-        Retrieves all available trading instruments with optional filtering capabilities.
+        Retrieve all trading instruments.
 
         This method returns a comprehensive list of instruments available for trading,
         with support for filtering by security type and various trading capabilities.
@@ -314,7 +319,11 @@ class PublicApiClient:
         self, symbol: str, instrument_type: InstrumentType
     ) -> Instrument:
         """
-        Get instrument details.
+        Retrieve a single instrument.
+
+        Retrieves detailed reference data for a single trading instrument,
+        identified by its symbol and security type. Use this when you already
+        know the symbol and type.
         """
         self.auth_manager.refresh_token_if_needed()
         response = self.api_client.get(
@@ -322,13 +331,58 @@ class PublicApiClient:
         )
         return Instrument(**response)
 
+    def search_bonds(
+        self,
+        bond_search_request: Optional[BondSearchRequest] = None,
+    ) -> BondSearchResponsePage:
+        """
+        Filtered search for fixed income instruments.
+
+        Returns a paged list of fixed income instruments from the bonds hub
+        with support for filtering, sorting, and pagination. All filters are
+        optional; see `BondSearchRequest` for the available criteria.
+        """
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            "/userapigateway/trading/instruments/bonds",
+            params=(
+                bond_search_request.model_dump(by_alias=True, exclude_none=True)
+                if bond_search_request
+                else None
+            ),
+        )
+        return BondSearchResponsePage(**response)
+
+    def get_bond_details(
+        self, symbol: str, account_id: Optional[str] = None
+    ) -> BondDetailsResponse:
+        """
+        Retrieve bond details.
+
+        Returns comprehensive bond instrument details including pricing,
+        ratings, and maturity information. Requires the `marketdata` scope.
+        Available to individual investors.
+
+        Args:
+            symbol: Bond symbol (typically CUSIP-BOND format)
+            account_id: Account ID (optional if `default_account_number` is set)
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            f"/userapigateway/marketdata/{account_id}/bond-details/{symbol}"
+        )
+        return BondDetailsResponse(**response)
+
     def get_quotes(
         self, instruments: List[OrderInstrument], account_id: Optional[str] = None
     ) -> List[Quote]:
-        """Get quotes for multiple symbols.
+        """Get real-time market quotes for a set of instruments.
+
+        Supported instrument types: EQUITY, OPTION, CRYPTO, and INDEX.
 
         Args:
-            symbols: List of symbols
+            instruments: List of instruments to quote
             account_id: Account ID (optional if `default_account_number` is set)
 
         Returns:
@@ -439,7 +493,9 @@ class PublicApiClient:
         account_id: Optional[str] = None,
     ) -> GreeksResponse:
         """
-        Get option greeks for multiple option symbols (OSI-normalized format)
+        Get option greeks for multiple option contracts specified in OSI
+        (Options Symbology Initiative) normalized format. Maximum 250
+        contracts per request.
 
         Args:
             osi_symbols: List of OSI-normalized option symbols
@@ -1164,6 +1220,12 @@ class PublicApiClient:
         account_id: Optional[str] = None,
     ) -> NewOrder:
         """Cancel an existing order and replace it with a new one atomically.
+
+        A replacement lets you modify an open order (for example, its quantity
+        or price) without cancelling and resubmitting it manually. Replacement
+        is asynchronous — the response confirms submission only; use
+        `get_order` to verify the order status or execution details after
+        replacement. Supported for equity, option, and crypto quantity orders.
 
         Args:
             request: CancelAndReplaceRequest with the existing order ID, a unique

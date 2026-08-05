@@ -1165,6 +1165,21 @@ class TestUnrealizedTaxLotsDeserialization:
         assert lot.out_of_date_status.description is not None
         assert lot.out_of_date_status.description.header == "Pending order"
 
+    def test_all_out_of_date_status_types_parse(self) -> None:
+        from public_api_sdk.models.tax_lots import OutOfDateStatus, OutOfDateStatusType
+
+        expected = {
+            "PRE_EXISTING_OPEN_ORDER_ON_SYMBOL",
+            "CORPORATE_ACTION_UNDERWAY",
+            "ORDER_OR_TRADE_ON_SYMBOL_TODAY",
+            "LOT_ASSIGNED",
+            "NOT_REPORTED_YET",
+            "AGGREGATE",
+        }
+        assert {t.value for t in OutOfDateStatusType} == expected
+        status = OutOfDateStatus(**{"type": "AGGREGATE"})
+        assert status.type == OutOfDateStatusType.AGGREGATE
+
     def test_summary_lot_optional_fields_absent(self) -> None:
         from public_api_sdk.models.tax_lots import UnrealizedLotsSummaryResponse
 
