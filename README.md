@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.20-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.21-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -389,6 +389,48 @@ instruments = client.get_all_instruments(
         trading_filter=[TradingPermission.BUY_AND_SELL],
     )
 )
+```
+
+#### Search Bonds
+
+Filtered, paged search for fixed income instruments from the bonds hub. All
+filters are optional — combine them to narrow down results.
+
+```python
+from decimal import Decimal
+
+from public_api_sdk import BondSearchRequest, BondType, RatingCategory, SortDirection
+
+page = client.search_bonds(
+    BondSearchRequest(
+        bond_type=[BondType.TREASURY, BondType.CORPORATE],
+        rating_category=RatingCategory.INVESTMENT_GRADE,
+        min_current_yield=Decimal("4.0"),
+        callable=False,
+        page_size=50,
+        sort_property="maturityDate",
+        sort_direction=SortDirection.ASC,
+    )
+)
+
+print(f"{page.total_elements} bonds across {page.total_pages} pages")
+for bond in page.content:
+    print(f"{bond.symbol}: {bond.description_short} — yield {bond.current_yield}")
+```
+
+#### Get Bond Details
+
+Retrieve comprehensive details for a single bond — pricing, ratings, coupon
+schedule, and maturity information. Requires the `marketdata` scope.
+
+```python
+bond = client.get_bond_details(symbol="912810TM0-BOND")
+
+print(f"Issuer: {bond.issuer}")
+print(f"Coupon: {bond.coupon} ({bond.coupon_frequency})")
+print(f"Maturity: {bond.maturity_date} ({bond.days_until_maturity} days)")
+print(f"Current price: {bond.current_price}, yield: {bond.current_yield}")
+print(f"Rating: {bond.rating} ({bond.rating_category})")
 ```
 
 #### Get Historic Bar Data
@@ -1206,7 +1248,7 @@ client.cancel_order(
 
 Atomically cancel an existing open order and submit a replacement with updated parameters in a single API call.
 
-> **Note:** Cancel-and-replace currently supports **crypto (quantity-based) orders** and **options orders** only. Equity order support is coming soon.
+> **Note:** Cancel-and-replace supports **equity**, **option**, and **crypto (quantity-based) orders**.
 
 ```python
 from public_api_sdk import (
@@ -1231,6 +1273,21 @@ replacement = client.cancel_and_replace_order(
     account_id="YOUR_ACCOUNT"                  # optional if default set
 )
 print(f"Replacement order ID: {replacement.order_id}")
+```
+
+To replace an order for a specific notional value instead of a share quantity,
+pass `amount` in place of `quantity` — the two are mutually exclusive:
+
+```python
+replacement = client.cancel_and_replace_order(
+    CancelAndReplaceRequest(
+        order_id="EXISTING_ORDER_ID",
+        request_id=str(uuid.uuid4()),
+        order_type=OrderType.MARKET,
+        expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+        amount=Decimal("500.00"),              # notional dollar amount
+    ),
+)
 ```
 
 The returned `NewOrder` (or `AsyncNewOrder` for the async client) can be used to track the replacement order's status exactly like a freshly placed order:

@@ -703,7 +703,17 @@ class CancelAndReplaceRequest(BaseModel):
     )
     quantity: Optional[Decimal] = Field(
         None,
-        description="The replacement order quantity.",
+        description=(
+            "The replacement order quantity. Used when buying/selling whole shares"
+            " and when selling fractional. Mutually exclusive with `amount`."
+        ),
+    )
+    amount: Optional[Decimal] = Field(
+        None,
+        description=(
+            "The replacement order amount. Used when replacing an order for a"
+            " specific notional value. Mutually exclusive with `quantity`."
+        ),
     )
     limit_price: Optional[Decimal] = Field(
         None,
@@ -718,6 +728,12 @@ class CancelAndReplaceRequest(BaseModel):
         description="The stop price. Required when orderType is STOP or STOP_LIMIT.",
     )
 
+    @model_validator(mode="after")
+    def validate_quantity_amount_exclusive(self) -> "CancelAndReplaceRequest":
+        if self.quantity is not None and self.amount is not None:
+            raise ValueError("quantity and amount are mutually exclusive")
+        return self
+
     @field_serializer("order_type")
     def serialize_order_type(self, value: OrderType) -> str:
         return value.value
@@ -726,6 +742,14 @@ class CancelAndReplaceRequest(BaseModel):
     def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
         return (
             str(value.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
+            if value is not None
+            else None
+        )
+
+    @field_serializer("amount")
+    def serialize_amount(self, value: Optional[Decimal]) -> Optional[str]:
+        return (
+            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
             if value is not None
             else None
         )

@@ -65,6 +65,7 @@ class OutOfDateStatusType(str, Enum):
     ORDER_OR_TRADE_ON_SYMBOL_TODAY = "ORDER_OR_TRADE_ON_SYMBOL_TODAY"
     LOT_ASSIGNED = "LOT_ASSIGNED"
     NOT_REPORTED_YET = "NOT_REPORTED_YET"
+    AGGREGATE = "AGGREGATE"
 
 
 class OutOfDateStatus(BaseModel):
