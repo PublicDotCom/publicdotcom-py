@@ -26,6 +26,7 @@ from public_api_sdk.models.historic_data import (
     BarAggregation,
     BarPeriod,
     BarsResponse,
+    LeadingFill,
     TradingSessionToggle,
 )
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
@@ -955,6 +956,48 @@ class TestGetBars:
         assert bar.open == Decimal("185.00")
         assert bar.close == Decimal("186.50")
         assert bar.volume == Decimal("6321507.562155")
+
+    @pytest.mark.asyncio
+    async def test_passes_ipo_date_as_query_param(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        await self.client.get_bars("NEWCO", BarPeriod.YEAR, ipo_date="2026-07-20")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"ipoDate": "2026-07-20"}
+
+    @pytest.mark.asyncio
+    async def test_omits_ipo_date_when_not_provided(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params is None
+
+    @pytest.mark.asyncio
+    async def test_parses_leading_fill(self) -> None:
+        payload = _bars_payload()
+        payload["leadingFill"] = {
+            "startTimestamp": "2025-08-11T00:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": "186.50",
+            "count": 47,
+            "includedInTotalExpectedBars": False,
+        }
+        self.client.api_client.get = AsyncMock(return_value=payload)
+        result = await self.client.get_bars(
+            "NEWCO", BarPeriod.YEAR, ipo_date="2026-07-20"
+        )
+        fill = result.leading_fill
+        assert isinstance(fill, LeadingFill)
+        assert fill.start_timestamp == "2025-08-11T00:00:00"
+        assert fill.end_timestamp == "2026-07-20T09:30:00"
+        assert fill.value == Decimal("186.50")
+        assert fill.count == 47
+        assert fill.included_in_total_expected_bars is False
+
+    @pytest.mark.asyncio
+    async def test_leading_fill_none_when_absent(self) -> None:
+        self.client.api_client.get = AsyncMock(return_value=_bars_payload())
+        result = await self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.leading_fill is None
 
 
 # ---------------------------------------------------------------------------

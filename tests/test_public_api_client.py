@@ -27,6 +27,7 @@ from public_api_sdk.models.historic_data import (
     BarPeriod,
     BarsResponse,
     LastSessionClose,
+    LeadingFill,
     TradingSessionToggle,
 )
 from public_api_sdk.models.history import HistoryRequest, HistoryResponsePage
@@ -1088,6 +1089,84 @@ class TestGetBars:
         result = self.client.get_bars("AAPL", BarPeriod.YEAR)
         assert result.pre_market_overnight is None
         assert result.post_market_overnight is None
+
+    def test_passes_ipo_date_as_query_param(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        self.client.get_bars("NEWCO", BarPeriod.YEAR, ipo_date="2026-07-20")
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {"ipoDate": "2026-07-20"}
+
+    def test_omits_ipo_date_when_not_provided(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        self.client.get_bars(
+            "AAPL",
+            BarPeriod.WEEK,
+            trading_session_toggle=TradingSessionToggle.REGULAR_HOURS,
+        )
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert "ipoDate" not in params
+
+    def test_combines_ipo_date_with_other_query_params(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        self.client.get_bars(
+            "NEWCO",
+            BarPeriod.YEAR,
+            trading_session_toggle=TradingSessionToggle.REGULAR_HOURS,
+            ipo_date="2026-07-20",
+        )
+        params = self.client.api_client.get.call_args[1]["params"]
+        assert params == {
+            "tradingSessionToggle": "REGULAR_HOURS",
+            "ipoDate": "2026-07-20",
+        }
+
+    def test_parses_leading_fill_additive(self) -> None:
+        # Non-DAY: includedInTotalExpectedBars is false — the fill is additive,
+        # prepend `count` grey bars in front of the real series.
+        payload = _bars_payload()
+        payload["leadingFill"] = {
+            "startTimestamp": "2025-08-11T00:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": "186.50",
+            "count": 47,
+            "includedInTotalExpectedBars": False,
+        }
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_bars("NEWCO", BarPeriod.YEAR, ipo_date="2026-07-20")
+        fill = result.leading_fill
+        assert isinstance(fill, LeadingFill)
+        assert fill.start_timestamp == "2025-08-11T00:00:00"
+        assert fill.end_timestamp == "2026-07-20T09:30:00"
+        assert fill.value == Decimal("186.50")
+        assert fill.count == 47
+        assert fill.included_in_total_expected_bars is False
+        # Additive: total slots = count + totalExpectedBars
+        assert fill.count + result.total_expected_bars == 48
+
+    def test_parses_leading_fill_included_in_total_expected_bars(self) -> None:
+        # DAY: includedInTotalExpectedBars is true — `count` is a subset of the
+        # fixed-session totalExpectedBars; the real bars start at index `count`.
+        payload = _bars_payload(period="DAY")
+        payload["totalExpectedBars"] = 78
+        payload["leadingFill"] = {
+            "startTimestamp": "2026-07-20T04:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": "42.00",
+            "count": 66,
+            "includedInTotalExpectedBars": True,
+        }
+        self.client.api_client.get = Mock(return_value=payload)
+        result = self.client.get_bars("NEWCO", BarPeriod.DAY)
+        fill = result.leading_fill
+        assert fill is not None
+        assert fill.included_in_total_expected_bars is True
+        # Subset: real bars start at index `count` within totalExpectedBars
+        assert fill.count < result.total_expected_bars
+
+    def test_leading_fill_none_when_absent(self) -> None:
+        self.client.api_client.get = Mock(return_value=_bars_payload())
+        result = self.client.get_bars("AAPL", BarPeriod.YEAR)
+        assert result.leading_fill is None
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.21-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.22-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -519,6 +519,35 @@ last = bars.last_regular_trading_session_close
 if last is not None:
     print(f"Prior close: ${last.close} on {last.close_date}  ({last.percent_change}%)")
 ```
+
+##### IPO date and leading fill
+
+For recently listed assets, pass `ipo_date` (the asset's IPO / first-trade date, `YYYY-MM-DD`). When the asset is younger than the requested period, the server fetches a finer aggregation over the available post-IPO history (so the chart isn't a straight diagonal) and returns `bars.leading_fill` — a `LeadingFill` model (or `None`) describing the flat, non-scrubbable lead-in to draw from the period start to the first real bar:
+
+```python
+from public_api_sdk import BarPeriod
+
+bars = client.get_bars(
+    "NEWCO",
+    BarPeriod.YEAR,
+    ipo_date="2026-07-20",  # YYYY-MM-DD
+)
+
+fill = bars.leading_fill
+if fill is not None:
+    # Draw `fill.count` flat grey bars at `fill.value` from
+    # fill.start_timestamp (period start) to fill.end_timestamp (first real bar).
+    if fill.included_in_total_expected_bars:
+        # DAY: `count` is a subset of the fixed-session total_expected_bars —
+        # the real bars start at index `count`.
+        real_bars_start = fill.count
+    else:
+        # Non-DAY: additive — prepend `count` grey bars in front of the real
+        # series (total slots = fill.count + bars.total_expected_bars).
+        total_slots = fill.count + bars.total_expected_bars
+```
+
+When `ipo_date` is omitted, behavior is unchanged. A future or unparseable value is ignored server-side. Not applied to the DAY chart, and `leading_fill` is never emitted for the DAY chart or the `ALL` / `SINCE_PURCHASE` periods.
 
 ##### Performance since purchase
 
@@ -1513,6 +1542,10 @@ bars = await client.get_bars("AAPL", BarPeriod.YEAR)
 
 # With aggregation override
 bars = await client.get_bars("AAPL", BarPeriod.DAY, aggregation=BarAggregation.FIVE_MINUTES)
+
+# Recently listed asset — pass ipo_date to get a finer post-IPO aggregation
+# plus bars.leading_fill describing the flat pre-IPO lead-in
+bars = await client.get_bars("NEWCO", BarPeriod.YEAR, ipo_date="2026-07-20")
 
 # Crypto / options / indices via instrument_type
 btc_bars = await client.get_bars(
