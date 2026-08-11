@@ -1473,3 +1473,101 @@ class TestStrategyQuoteRequestSerialization:
         )
         assert request.base_symbol == "AAPL"
         assert request.option_legs[0].symbol == "AAPL260116C00270000"
+
+
+# ---------------------------------------------------------------------------
+# BarsResponse — leadingFill
+# ---------------------------------------------------------------------------
+
+
+class TestLeadingFillDeserialization:
+    def _base_payload(self) -> dict:
+        session = {"expectedBars": 1, "bars": []}
+        return {
+            "symbol": "NEWCO",
+            "period": "YEAR",
+            "totalExpectedBars": 1,
+            "preMarket": session,
+            "regularMarket": session,
+            "afterMarket": session,
+        }
+
+    def test_leading_fill_additive(self) -> None:
+        from public_api_sdk.models.historic_data import BarsResponse, LeadingFill
+
+        # Non-DAY chart: includedInTotalExpectedBars is false — additive,
+        # prepend `count` grey bars in front of the real series.
+        payload = self._base_payload()
+        payload["leadingFill"] = {
+            "startTimestamp": "2025-08-11T00:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": "186.50",
+            "count": 47,
+            "includedInTotalExpectedBars": False,
+        }
+        bars = BarsResponse(**payload)
+        assert isinstance(bars.leading_fill, LeadingFill)
+        assert bars.leading_fill.start_timestamp == "2025-08-11T00:00:00"
+        assert bars.leading_fill.end_timestamp == "2026-07-20T09:30:00"
+        assert bars.leading_fill.value == Decimal("186.50")
+        assert bars.leading_fill.count == 47
+        assert bars.leading_fill.included_in_total_expected_bars is False
+
+    def test_leading_fill_included_in_total_expected_bars(self) -> None:
+        from public_api_sdk.models.historic_data import BarsResponse
+
+        # DAY chart: includedInTotalExpectedBars is true — `count` is a subset
+        # of the fixed-session totalExpectedBars; real bars start at index
+        # `count`.
+        payload = self._base_payload()
+        payload["period"] = "DAY"
+        payload["totalExpectedBars"] = 78
+        payload["leadingFill"] = {
+            "startTimestamp": "2026-07-20T04:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": "42.00",
+            "count": 66,
+            "includedInTotalExpectedBars": True,
+        }
+        bars = BarsResponse(**payload)
+        assert bars.leading_fill is not None
+        assert bars.leading_fill.included_in_total_expected_bars is True
+        assert bars.leading_fill.count < bars.total_expected_bars
+
+    def test_leading_fill_absent(self) -> None:
+        from public_api_sdk.models.historic_data import BarsResponse
+
+        bars = BarsResponse(**self._base_payload())
+        assert bars.leading_fill is None
+
+    def test_leading_fill_accepts_snake_case_input(self) -> None:
+        from public_api_sdk.models.historic_data import LeadingFill
+
+        fill = LeadingFill(
+            start_timestamp="2025-08-11T00:00:00",
+            end_timestamp="2026-07-20T09:30:00",
+            value=Decimal("186.50"),
+            count=47,
+            included_in_total_expected_bars=False,
+        )
+        assert fill.count == 47
+        assert fill.included_in_total_expected_bars is False
+
+    def test_leading_fill_serializes_to_camelcase(self) -> None:
+        from public_api_sdk.models.historic_data import LeadingFill
+
+        fill = LeadingFill(
+            start_timestamp="2025-08-11T00:00:00",
+            end_timestamp="2026-07-20T09:30:00",
+            value=Decimal("186.50"),
+            count=47,
+            included_in_total_expected_bars=False,
+        )
+        dumped = fill.model_dump(by_alias=True)
+        assert dumped == {
+            "startTimestamp": "2025-08-11T00:00:00",
+            "endTimestamp": "2026-07-20T09:30:00",
+            "value": Decimal("186.50"),
+            "count": 47,
+            "includedInTotalExpectedBars": False,
+        }

@@ -5,6 +5,7 @@ from .historic_data import (
     BarPeriod,
     BarsResponse,
     LastSessionClose,
+    LeadingFill,
     MarketSessionBars,
     TradingSessionToggle,
 )
@@ -142,6 +143,7 @@ __all__ = [
     "BarPeriod",
     "BarsResponse",
     "LastSessionClose",
+    "LeadingFill",
     "MarketSessionBars",
     "TradingSessionToggle",
     "AccessTokenResponse",

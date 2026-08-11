@@ -93,6 +93,67 @@ class LastSessionClose(BaseModel):
     )
 
 
+class LeadingFill(BaseModel):
+    """Flat, non-scrubbable lead-in for assets younger than the requested period.
+
+    Returned only when ``ipo_date`` was passed to ``get_bars`` and the first
+    available data point starts after the requested period. Describes the flat
+    fill the client should draw from the period start to the first real bar.
+    Never emitted for the DAY chart or the ALL / SINCE_PURCHASE periods.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    start_timestamp: str = Field(
+        ...,
+        validation_alias=AliasChoices("start_timestamp", "startTimestamp"),
+        serialization_alias="startTimestamp",
+        description=(
+            "ISO-8601 start of the requested (visible) period — where the"
+            " flat fill begins."
+        ),
+    )
+    end_timestamp: str = Field(
+        ...,
+        validation_alias=AliasChoices("end_timestamp", "endTimestamp"),
+        serialization_alias="endTimestamp",
+        description=(
+            "ISO-8601 timestamp of the first real data point — where the flat"
+            " fill ends. Matches the first bar's timestamp."
+        ),
+    )
+    value: Decimal = Field(
+        ...,
+        description=(
+            "The value to draw the flat fill at (equal to the first real data"
+            " point's value, so the fill meets the series)."
+        ),
+    )
+    count: int = Field(
+        ...,
+        description=(
+            "Number of leading grey bars to draw (same meaning for every"
+            " timeframe). Index-based renderers use this to reserve/offset the"
+            " leading width."
+        ),
+    )
+    included_in_total_expected_bars: bool = Field(
+        ...,
+        validation_alias=AliasChoices(
+            "included_in_total_expected_bars", "includedInTotalExpectedBars"
+        ),
+        serialization_alias="includedInTotalExpectedBars",
+        description=(
+            "Whether ``count`` is already part of ``total_expected_bars``."
+            " False (non-DAY): additive — prepend ``count`` grey bars in front"
+            " of the real series (total slots = count + total_expected_bars)."
+            " True (DAY): a subset of the fixed-session ``total_expected_bars``"
+            " — the real bars start at index ``count`` (grey + real +"
+            " trailing-empty = total_expected_bars)."
+        ),
+    )
+
+
 class MarketSessionBars(BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -175,4 +236,17 @@ class BarsResponse(BaseModel):
             "last_regular_trading_session_close", "lastRegularTradingSessionClose"
         ),
         serialization_alias="lastRegularTradingSessionClose",
+    )
+    leading_fill: Optional[LeadingFill] = Field(
+        None,
+        validation_alias=AliasChoices("leading_fill", "leadingFill"),
+        serialization_alias="leadingFill",
+        description=(
+            "Present only when the first available data point starts after the"
+            " requested period (e.g. a recently listed asset, or an asset"
+            " younger than the selected range). Describes a flat,"
+            " non-scrubbable lead-in the client should draw from the period"
+            " start to the first real bar. Not emitted for the DAY chart or"
+            " the ALL / SINCE_PURCHASE periods."
+        ),
     )

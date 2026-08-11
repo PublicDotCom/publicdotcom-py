@@ -11,6 +11,7 @@ from .models import (
     BarsResponse,
     Base64File,
     LastSessionClose,
+    LeadingFill,
     MarketSessionBars,
     TradingSessionToggle,
     BondDetails,
@@ -127,7 +128,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.21"
+__version__ = "0.1.22"
 
 __all__ = [
     # Historic data
@@ -136,6 +137,7 @@ __all__ = [
     "BarPeriod",
     "BarsResponse",
     "LastSessionClose",
+    "LeadingFill",
     "MarketSessionBars",
     "TradingSessionToggle",
     # Auth

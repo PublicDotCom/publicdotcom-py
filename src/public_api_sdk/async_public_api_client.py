@@ -507,6 +507,7 @@ class AsyncPublicApiClient:
         aggregation: Optional[BarAggregation] = None,
         purchase_date: Optional[str] = None,
         trading_session_toggle: Optional[TradingSessionToggle] = None,
+        ipo_date: Optional[str] = None,
     ) -> BarsResponse:
         """Fetch OHLCV bar data for a symbol over a given time period.
 
@@ -524,6 +525,14 @@ class AsyncPublicApiClient:
                 ``REGULAR_AND_EXTENDED_HOURS``. ``ALL_SESSIONS`` adds the
                 overnight ATS sessions (``pre_market_overnight`` and
                 ``post_market_overnight`` on the response).
+            ipo_date: Optional. The asset's IPO / first-trade date. Format:
+                ``"YYYY-MM-DD"``. When the asset is younger than the requested
+                period, the server fetches a finer aggregation over the
+                available post-IPO history (so the chart isn't a straight
+                diagonal) and returns a ``leading_fill`` object on the response
+                describing the flat lead-in for the pre-IPO portion. When
+                omitted, behavior is unchanged. A future or unparseable value
+                is ignored server-side. Not applied to the DAY chart.
 
         Returns:
             BarsResponse with pre-market, regular-market, and after-hours bars.
@@ -545,6 +554,8 @@ class AsyncPublicApiClient:
             params["purchaseDate"] = purchase_date
         if trading_session_toggle is not None:
             params["tradingSessionToggle"] = trading_session_toggle.value
+        if ipo_date:
+            params["ipoDate"] = ipo_date
         response = await self.api_client.get(path, params=params or None)
         return BarsResponse(**response)
 
