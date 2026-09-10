@@ -59,8 +59,12 @@ from .option import (
     GreeksResponse,
 )
 from .order import (
+    BRACKET_ORDER_CLASSES,
     CancelAndReplaceRequest,
     GatewayTaxLotMatchingInstruction,
+    OrderClass,
+    StopLoss,
+    TakeProfit,
     OrderInstrument,
     OrderExpirationRequest,
     OrderPriceIncrement,
@@ -183,6 +187,10 @@ __all__ = [
     "OptionExpirationsRequest",
     "OptionExpirationsResponse",
     "CancelAndReplaceRequest",
+    "BRACKET_ORDER_CLASSES",
+    "OrderClass",
+    "StopLoss",
+    "TakeProfit",
     "OrderInstrument",
     "OrderExpirationRequest",
     "OrderSide",

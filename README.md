@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.22-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.23-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -18,7 +18,7 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
   - [Account Management](#account-management) — accounts, portfolio, history
   - [Market Data](#market-data) — quotes, instruments, historic bars
   - [Options Trading](#options-trading) — expirations, chains, greeks
-  - [Order Management](#order-management) — preflight, spreads, placing & tracking orders
+  - [Order Management](#order-management) — preflight, spreads, brackets, placing & tracking orders
   - [Price Subscription](#price-subscription)
 - [Async Client](#async-client)
   - [Configuration](#configuration) & [Context Manager](#context-manager)
@@ -1082,6 +1082,77 @@ print(f"Order placed with ID: {new_order.order_id}")
 > )
 > ```
 
+##### Place Bracket Order
+
+Attach exit legs to an entry order. Set `order_class` to `BRACKET`, `OCO` or `OTO` and supply `take_profit`, `stop_loss`, or both. The exit legs are placed automatically when the entry fills.
+
+```python
+from public_api_sdk import (
+    OrderRequest,
+    OrderInstrument,
+    InstrumentType,
+    OrderSide,
+    OrderType,
+    OrderExpirationRequest,
+    TimeInForce,
+    OrderClass,
+    TakeProfit,
+    StopLoss,
+)
+from decimal import Decimal
+import uuid
+
+bracket_request = OrderRequest(
+    order_id=str(uuid.uuid4()),
+    instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+    order_side=OrderSide.BUY,
+    order_type=OrderType.LIMIT,
+    expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+    quantity=Decimal("10"),
+    limit_price=Decimal("227.50"),
+    order_class=OrderClass.BRACKET,
+    take_profit=TakeProfit(limit_price=Decimal("245.00")),
+    stop_loss=StopLoss(stop_price=Decimal("210.00")),
+)
+
+entry = client.place_order(bracket_request)
+print(f"Bracket entry order: {entry.order_id}")
+```
+
+`place_order` returns a `NewOrder` for the **entry** order. Once the bracket exists, every order in it — entry and exits — reports the entry's order ID as its `bracket_id`, so you can group them when listing orders:
+
+```python
+orders = client.get_orders()
+legs = [o for o in orders.orders if o.bracket_id == entry.order_id]
+```
+
+`bracket_id` is `None` on standalone orders.
+
+**Order classes**
+
+| Class | Meaning |
+|---|---|
+| `SIMPLE` (or omitted) | Standalone order — no exit legs. |
+| `BRACKET` | Entry with take-profit and/or stop-loss exits. |
+| `OCO` | One-cancels-other exits; the entry must be a `LIMIT` order. |
+| `OTO` | One-triggers-other — the entry triggers the attached exit. |
+
+**Exit legs**
+
+- `TakeProfit(limit_price=...)` — placed as a `LIMIT` order on the opposite side of the entry.
+- `StopLoss(stop_price=...)` — placed as a `STOP` order.
+- `StopLoss(stop_price=..., limit_price=...)` — placed as a `STOP_LIMIT` order.
+
+**Constraints.** The SDK validates these before the request leaves your process:
+
+- `take_profit` / `stop_loss` require a bracket `order_class`, and a bracket `order_class` requires at least one of them.
+- Equities and options only — not crypto or bonds.
+- Whole-share `quantity`; `amount` (notional) is not supported.
+- The CORE market session — omit `equity_market_session` or set it to `CORE`.
+- The entry `order_type` must be `LIMIT` or `MARKET`, and `LIMIT` only for `OCO`.
+
+> **Replacing bracket legs.** The entry order cannot be replaced. The closing legs accept `limit_price` and `stop_price` replacements only — resubmit `quantity`, `order_type` and `expiration` unchanged. See [Cancel and Replace Order](#cancel-and-replace-order).
+
 ##### Place Short Order
 
 Submit a quantity-based equity short-sale order. The SDK sets the API-required short intent for you: `orderSide=SELL` and `openCloseIndicator=OPEN`. Notional short orders are not supported. Use `preflight_short_order()` first when you want borrow, uptick-rule, and margin diagnostics before sending the live order.
@@ -1278,6 +1349,8 @@ client.cancel_order(
 Atomically cancel an existing open order and submit a replacement with updated parameters in a single API call.
 
 > **Note:** Cancel-and-replace supports **equity**, **option**, and **crypto (quantity-based) orders**.
+
+> **Bracket orders.** The opening (entry) order of a bracket cannot be replaced. The closing legs — take-profit, stop-loss, and both legs of an `OCO` — accept `limit_price` and `stop_price` replacements only; `quantity`, `order_type` and `expiration` must be resubmitted unchanged. See [Place Bracket Order](#place-bracket-order).
 
 ```python
 from public_api_sdk import (
