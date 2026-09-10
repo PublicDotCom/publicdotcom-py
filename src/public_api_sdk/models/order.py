@@ -496,6 +496,92 @@ class PreflightResponse(BaseModel):
     price_increment: Optional[OrderPriceIncrement] = Field(None, alias="priceIncrement")
 
 
+class OrderClass(str, Enum):
+    """The order class for a single-leg order.
+
+    ``SIMPLE`` (or omitting the field) places a standalone order.
+    ``BRACKET``, ``OCO`` and ``OTO`` place a bracket order, using
+    :class:`TakeProfit` and :class:`StopLoss` to describe the exit legs.
+    """
+
+    SIMPLE = "SIMPLE"
+    BRACKET = "BRACKET"
+    OCO = "OCO"
+    OTO = "OTO"
+
+
+#: Order classes that place a bracket order rather than a standalone one.
+BRACKET_ORDER_CLASSES = frozenset({OrderClass.BRACKET, OrderClass.OCO, OrderClass.OTO})
+
+
+class TakeProfit(BaseModel):
+    """The take-profit leg of a bracket order.
+
+    Always placed as a ``LIMIT`` order on the opposite side of the entry.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    limit_price: Decimal = Field(
+        ...,
+        validation_alias=AliasChoices("limit_price", "limitPrice"),
+        serialization_alias="limitPrice",
+        description="The limit price at which the take-profit order executes",
+    )
+
+    @field_validator("limit_price")
+    @classmethod
+    def validate_limit_price_positive(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("`limit_price` must be greater than 0")
+        return v
+
+    @field_serializer("limit_price")
+    def serialize_decimal(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+class StopLoss(BaseModel):
+    """The stop-loss leg of a bracket order.
+
+    Placed as a ``STOP`` order when only ``stop_price`` is present, or as a
+    ``STOP_LIMIT`` order when ``limit_price`` is also present.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    stop_price: Decimal = Field(
+        ...,
+        validation_alias=AliasChoices("stop_price", "stopPrice"),
+        serialization_alias="stopPrice",
+        description="The stop price that activates the stop-loss order",
+    )
+    limit_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("limit_price", "limitPrice"),
+        serialization_alias="limitPrice",
+        description=(
+            "Optional limit price; when present the stop-loss is placed as a "
+            "STOP_LIMIT order rather than a STOP order"
+        ),
+    )
+
+    @field_validator("stop_price", "limit_price")
+    @classmethod
+    def validate_prices_positive(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and v <= 0:
+            raise ValueError("bracket prices must be greater than 0")
+        return v
+
+    @field_serializer("stop_price", "limit_price")
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        return (
+            str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            if value is not None
+            else None
+        )
+
+
 class OrderRequest(OrderValidationMixin, BaseModel):
     model_config = {"populate_by_name": True}
 
@@ -604,6 +690,101 @@ class OrderRequest(OrderValidationMixin, BaseModel):
             ),
         )
     )
+    order_class: Optional[OrderClass] = Field(
+        None,
+        validation_alias=AliasChoices("order_class", "orderClass"),
+        serialization_alias="orderClass",
+        description=(
+            "The order class. Omitted or `SIMPLE` places a standalone order. "
+            "`BRACKET`, `OCO` or `OTO` place a bracket order using `take_profit` "
+            "and `stop_loss`. Bracket orders are supported for equities and "
+            "options only, require a whole-share `quantity` (no `amount`), must "
+            "use the CORE market session, and the entry order type must be "
+            "`LIMIT` or `MARKET` (`LIMIT` only for `OCO`)."
+        ),
+    )
+    take_profit: Optional[TakeProfit] = Field(
+        None,
+        validation_alias=AliasChoices("take_profit", "takeProfit"),
+        serialization_alias="takeProfit",
+        description=(
+            "The take-profit leg of a bracket order. Requires `order_class` to be "
+            "`BRACKET`, `OCO` or `OTO`."
+        ),
+    )
+    stop_loss: Optional[StopLoss] = Field(
+        None,
+        validation_alias=AliasChoices("stop_loss", "stopLoss"),
+        serialization_alias="stopLoss",
+        description=(
+            "The stop-loss leg of a bracket order. Requires `order_class` to be "
+            "`BRACKET`, `OCO` or `OTO`."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_bracket_order(self) -> "OrderRequest":
+        """Enforce the bracket-order constraints the API documents.
+
+        Only the constraints the spec states explicitly are enforced here — a
+        bracket class needs at least one exit leg, but which legs each class
+        requires is left to the API, so the SDK never rejects a request the
+        backend would have accepted.
+        """
+        is_bracket = self.order_class in BRACKET_ORDER_CLASSES
+
+        if not is_bracket:
+            if self.take_profit is not None or self.stop_loss is not None:
+                raise ValueError(
+                    "`take_profit` and `stop_loss` require `order_class` to be one "
+                    "of BRACKET, OCO or OTO"
+                )
+            return self
+
+        if self.take_profit is None and self.stop_loss is None:
+            raise ValueError(
+                f"`order_class` {self.order_class.value} requires at least one of "
+                "`take_profit` or `stop_loss`"
+            )
+
+        if self.instrument.type not in (InstrumentType.EQUITY, InstrumentType.OPTION):
+            raise ValueError(
+                "bracket orders are supported for EQUITY and OPTION instruments "
+                f"only, not {self.instrument.type.value}"
+            )
+
+        if self.amount is not None:
+            raise ValueError(
+                "bracket orders require a whole-share `quantity`; `amount` is not "
+                "supported"
+            )
+        if self.quantity is None or self.quantity != self.quantity.to_integral_value():
+            raise ValueError(
+                f"bracket orders require a whole-share `quantity`, got {self.quantity}"
+            )
+
+        if (
+            self.equity_market_session is not None
+            and self.equity_market_session != EquityMarketSession.CORE
+        ):
+            raise ValueError(
+                "bracket orders must use the CORE market session, not "
+                f"{self.equity_market_session.value}"
+            )
+
+        allowed_types = (
+            (OrderType.LIMIT,)
+            if self.order_class == OrderClass.OCO
+            else (OrderType.LIMIT, OrderType.MARKET)
+        )
+        if self.order_type not in allowed_types:
+            allowed = " or ".join(t.value for t in allowed_types)
+            raise ValueError(
+                f"the entry order type for order class {self.order_class.value} "
+                f"must be {allowed}, not {self.order_type.value}"
+            )
+
+        return self
 
     @field_serializer("order_side")
     def serialize_order_side(self, value: OrderSide) -> str:
@@ -824,6 +1005,16 @@ class Order(BaseModel):
         ...,
         validation_alias=AliasChoices("order_id", "orderId"),
         serialization_alias="orderId",
+    )
+    bracket_id: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("bracket_id", "bracketId"),
+        serialization_alias="bracketId",
+        description=(
+            "Identifies the bracket this order belongs to, which is the `order_id` "
+            "of the bracket's entry (parent) order. All legs of the same bracket "
+            "share this id. None for standalone (non-bracket) orders."
+        ),
     )
     instrument: OrderInstrument = Field(...)
     created_at: Optional[datetime] = Field(None, alias="createdAt")

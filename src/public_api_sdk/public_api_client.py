@@ -1125,6 +1125,12 @@ class PublicApiClient:
     ) -> NewOrder:
         """Place a single-leg order.
 
+        Bracket orders: set `order_request.order_class` to `BRACKET`, `OCO` or
+        `OTO` and supply `take_profit` and/or `stop_loss`. The returned
+        `NewOrder` tracks the *entry* order; the exit legs are placed
+        automatically when the entry fills, and every leg of the bracket
+        carries the entry's order ID as its `bracket_id`.
+
         Args:
             order_request: OrderRequest
             account_id: Account ID
@@ -1237,6 +1243,11 @@ class PublicApiClient:
         is asynchronous — the response confirms submission only; use
         `get_order` to verify the order status or execution details after
         replacement. Supported for equity, option, and crypto quantity orders.
+
+        Bracket orders: the opening (entry) order cannot be replaced. The
+        closing legs — take-profit, stop-loss, and both legs of an OCO — accept
+        `limit_price` and `stop_price` replacements only; `quantity`,
+        `order_type` and `expiration` must be resubmitted unchanged.
 
         Args:
             request: CancelAndReplaceRequest with the existing order ID, a unique

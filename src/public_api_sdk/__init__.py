@@ -39,6 +39,7 @@ from .models import (
     InstrumentsRequest,
     InstrumentsResponse,
     InstrumentType,
+    BRACKET_ORDER_CLASSES,
     LegInstrument,
     LegInstrumentType,
     MultilegOrderRequest,
@@ -55,6 +56,7 @@ from .models import (
     OptionPriceIncrement,
     OptionSpecificTaxLotDetails,
     Order,
+    OrderClass,
     OrderExpirationRequest,
     OrderInstrument,
     OrderLegRequest,
@@ -96,6 +98,7 @@ from .models import (
     SortInfo,
     SpCreditwatch,
     SpOutlook,
+    StopLoss,
     Strategy,
     StrategyLeg,
     StrategyLegDto,
@@ -107,6 +110,7 @@ from .models import (
     SubscriptionConfig,
     SubscriptionInfo,
     SubscriptionStatus,
+    TakeProfit,
     TimeInForce,
     Trading,
     TradingPermission,
@@ -128,7 +132,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.22"
+__version__ = "0.1.23"
 
 __all__ = [
     # Historic data
@@ -203,6 +207,10 @@ __all__ = [
     "ShortSelling",
     "UptickRule",
     "EquityMarketSession",
+    "OrderClass",
+    "TakeProfit",
+    "StopLoss",
+    "BRACKET_ORDER_CLASSES",
     "PreflightMultiLegRequest",
     "PreflightMultiLegResponse",
     "MultilegOrderRequest",
