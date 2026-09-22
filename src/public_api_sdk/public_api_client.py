@@ -34,7 +34,9 @@ from .models import (
     OrderInstrument,
     OrderRequest,
     OrderResult,
+    OrderSearchRequest,
     OrderType,
+    OrderV2,
     Portfolio,
     PreflightMultiLegRequest,
     PreflightMultiLegResponse,
@@ -1211,6 +1213,65 @@ class PublicApiClient:
             f"/userapigateway/trading/{account_id}/order/{order_id}"
         )
         return Order(**response)
+
+    def get_order_v2(
+        self,
+        order_id: str,
+        account_id: Optional[str] = None,
+    ) -> OrderV2:
+        """
+        Retrieves the status and details of a specific order using the v2 order
+        endpoint, which additionally reports the market session, the
+        fill/replace/modification timestamps and the individual trades.
+
+        Works only for orders created within the last 30 days; older orders
+        return 404 (`NotFoundError`). Use `get_order` for the v1 view.
+
+        Note: Order placement is asynchronous. This endpoint may return an error
+        if the order has not yet been indexed for retrieval.
+
+        Args:
+            order_id: Order ID
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            OrderV2 details, including the status and trades.
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            f"/userapigateway/trading/{account_id}/order/v2/{order_id}"
+        )
+        return OrderV2(**response)
+
+    def search_orders(
+        self,
+        order_search_request: Optional[OrderSearchRequest] = None,
+        account_id: Optional[str] = None,
+    ) -> List[OrderV2]:
+        """
+        Search order details and status for orders matching the given criteria.
+
+        Returns at most 500 orders, and only orders created within the last
+        30 days. All filters are optional — pass no request (or an empty
+        `OrderSearchRequest`) to list every order in the window.
+
+        Args:
+            order_search_request: Optional filters — status, creation time
+                range, instruments, side, open/close indicator, security type.
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            List of matching OrderV2 records (each including its trades).
+        """
+        account_id = self.__get_account_id(account_id)
+        self.auth_manager.refresh_token_if_needed()
+        request = order_search_request or OrderSearchRequest()
+        response = self.api_client.post(
+            f"/userapigateway/trading/{account_id}/order/v2",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        return [OrderV2(**order) for order in response.get("orders", [])]
 
     def cancel_order(
         self,

@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.23-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.24-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -18,7 +18,7 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
   - [Account Management](#account-management) — accounts, portfolio, history
   - [Market Data](#market-data) — quotes, instruments, historic bars
   - [Options Trading](#options-trading) — expirations, chains, greeks
-  - [Order Management](#order-management) — preflight, spreads, brackets, placing & tracking orders
+  - [Order Management](#order-management) — preflight, spreads, brackets, placing, tracking & searching orders
   - [Price Subscription](#price-subscription)
 - [Async Client](#async-client)
   - [Configuration](#configuration) & [Context Manager](#context-manager)
@@ -1332,6 +1332,52 @@ order_details = client.get_order(
 print(f"Order status: {order_details.status}")
 ```
 
+#### Get Order Details (v2)
+
+The v2 order endpoint returns everything `get_order` does plus the market session the order ran in, the fill / replace / last-modified timestamps, and the individual trades that filled it. It only covers orders created within the **last 30 days** — older orders return a `NotFoundError`.
+
+```python
+order = client.get_order_v2(
+    order_id="YOUR_ORDER_ID",
+    account_id="YOUR_ACCOUNT"  # optional if default set
+)
+print(f"{order.status} in session {order.equity_market_session}")
+print(f"Filled at {order.filled_at}, last modified {order.last_modified}")
+for trade in order.trades or []:
+    print(f"  {trade.side} {trade.quantity} @ {trade.price} ({trade.timestamp})")
+```
+
+#### Search Orders
+
+Search an account's orders by status, creation time, instrument, side, open/close indicator or security type. Returns up to **500 orders** created within the **last 30 days**; every filter is optional.
+
+```python
+from datetime import datetime, timedelta, timezone
+from public_api_sdk import (
+    InstrumentType,
+    OrderInstrument,
+    OrderSearchRequest,
+    OrderSide,
+    OrderStatus,
+)
+
+# Everything in the 30-day window
+orders = client.search_orders()
+
+# Filled AAPL buys from the past week
+orders = client.search_orders(
+    OrderSearchRequest(
+        status=OrderStatus.FILLED,
+        side=OrderSide.BUY,
+        instruments=[OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY)],
+        created_after=datetime.now(timezone.utc) - timedelta(days=7),
+    ),
+    account_id="YOUR_ACCOUNT",  # optional if default set
+)
+for order in orders:
+    print(f"{order.order_id}: {order.status} {order.filled_quantity} @ {order.average_price}")
+```
+
 #### Cancel Order
 
 Submit an asynchronous request to cancel an order.
@@ -1706,6 +1752,13 @@ print(f"Status: {order_details.status}")
 
 # Cancel
 await client.cancel_order(order_id="ORDER-ID")
+
+# v2 view — adds market session, fill/replace timestamps and trades (last 30 days only)
+order_v2 = await client.get_order_v2(order_id="ORDER-ID")
+print(f"{order_v2.status}: {len(order_v2.trades or [])} trade(s)")
+
+# Search orders (up to 500, last 30 days; all filters optional)
+filled = await client.search_orders(OrderSearchRequest(status=OrderStatus.FILLED))
 ```
 
 #### Cancel and Replace Order (Async)

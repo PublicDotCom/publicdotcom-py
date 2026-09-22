@@ -1062,3 +1062,140 @@ class Order(BaseModel):
         description="If instrument.type = MULTI_LEG_INSTRUMENT, this contains the list of legs",
     )
     reject_reason: Optional[str] = Field(None, alias="rejectReason")
+
+
+class OrderMarketSession(str, Enum):
+    """The equity market session an order was placed in, as reported by the
+    order-search / get-order-v2 endpoints.
+
+    This is the *response-side* vocabulary and differs from the request-side
+    :class:`EquityMarketSession` (``CORE`` / ``EXTENDED`` /
+    ``TWENTY_FOUR_HOURS``) used when placing an order.
+    """
+
+    REGULAR = "REGULAR"
+    REST_OF_DAY = "REST_OF_DAY"
+    TWENTY_FOUR_HOURS = "TWENTY_FOUR_HOURS"
+    UNKNOWN = "UNKNOWN"  # fallback for unrecognised API sessions
+
+    @classmethod
+    def _missing_(cls, value: object) -> "OrderMarketSession":
+        logging.getLogger(__name__).warning(
+            "Unrecognised OrderMarketSession %r — defaulting to UNKNOWN. "
+            "Update the SDK to get the correct session name.",
+            value,
+        )
+        return cls.UNKNOWN
+
+
+class Trade(BaseModel):
+    """A single execution (fill) against an order.
+
+    Maps to the spec's `GatewayTrade`; returned inside :attr:`OrderV2.trades`.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    instrument: OrderInstrument = Field(...)
+    quantity: Optional[Decimal] = Field(None, description="Quantity filled by this trade")
+    price: Optional[Decimal] = Field(None, description="Execution price per unit")
+    side: Optional[OrderSide] = Field(None)
+    trade_id: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("trade_id", "tradeId"),
+        serialization_alias="tradeId",
+    )
+    timestamp: Optional[datetime] = Field(None, description="Execution time")
+
+
+class OrderV2(Order):
+    """An order as returned by the v2 order endpoints (`search_orders` and
+    `get_order_v2`).
+
+    Maps to the spec's `GatewayOrderV2` — a strict superset of :class:`Order`
+    that adds the market session, the fill/replace/modification timestamps and
+    the individual trades that filled the order.
+    """
+
+    equity_market_session: Optional[OrderMarketSession] = Field(
+        None,
+        alias="equityMarketSession",
+        description="For equity orders - which market session was chosen",
+    )
+    filled_at: Optional[datetime] = Field(
+        None, alias="filledAt", description="The time the order was filled"
+    )
+    replaced_at: Optional[datetime] = Field(
+        None, alias="replacedAt", description="The time the order was replaced"
+    )
+    last_modified: Optional[datetime] = Field(
+        None,
+        alias="lastModified",
+        description="The time the order was last modified",
+    )
+    trades: Optional[List[Trade]] = Field(
+        None, description="The list of trades associated with the order"
+    )
+
+
+class OrderSearchRequest(BaseModel):
+    """Filter criteria for :meth:`PublicApiClient.search_orders`.
+
+    Maps to the spec's `ApiQueryOrdersRequest`. Every field is optional; an
+    omitted field applies no filter. The API returns at most 500 orders and
+    only searches orders created within the last 30 days.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    status: Optional[OrderStatus] = Field(
+        None, description="Only return orders currently in this status"
+    )
+    created_after: Optional[datetime] = Field(
+        None,
+        validation_alias=AliasChoices("created_after", "createdAfter"),
+        serialization_alias="createdAfter",
+        description=(
+            "Only return orders created at or after this time (ISO 8601 with "
+            "timezone). Cannot reach back further than 30 days."
+        ),
+    )
+    created_before: Optional[datetime] = Field(
+        None,
+        validation_alias=AliasChoices("created_before", "createdBefore"),
+        serialization_alias="createdBefore",
+        description="Only return orders created before this time (ISO 8601 with timezone)",
+    )
+    instruments: Optional[List[OrderInstrument]] = Field(
+        None, description="Only return orders for these instruments"
+    )
+    side: Optional[OrderSide] = Field(None, description="Only return BUY or SELL orders")
+    open_close_indicator: Optional[OpenCloseIndicator] = Field(
+        None,
+        validation_alias=AliasChoices("open_close_indicator", "openCloseIndicator"),
+        serialization_alias="openCloseIndicator",
+        description="Only return opening or closing orders (options / short sales)",
+    )
+    security_type: Optional[InstrumentType] = Field(
+        None,
+        validation_alias=AliasChoices("security_type", "securityType"),
+        serialization_alias="securityType",
+        description="Only return orders for this security type",
+    )
+
+    @field_validator("status")
+    @classmethod
+    def validate_status_searchable(
+        cls, v: Optional[OrderStatus]
+    ) -> Optional[OrderStatus]:
+        if v is OrderStatus.UNKNOWN:
+            raise ValueError("`status` UNKNOWN is a client-side fallback, not searchable")
+        return v
+
+    @field_serializer("created_after", "created_before")
+    def serialize_timestamp(self, value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat(timespec="seconds") if value else None
+
+    @field_serializer("status", "side", "open_close_indicator", "security_type")
+    def serialize_enum(self, value: Optional[Enum]) -> Optional[str]:
+        return value.value if value is not None else None
