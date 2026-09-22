@@ -13,6 +13,7 @@ class AccountType(str, Enum):
     TRADITIONAL_IRA = "TRADITIONAL_IRA"
     ROTH_IRA = "ROTH_IRA"
     ENTITY = "ENTITY"
+    JOINT = "JOINT"
 
 
 class OptionsLevel(str, Enum):

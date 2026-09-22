@@ -60,17 +60,20 @@ from .models import (
     OrderExpirationRequest,
     OrderInstrument,
     OrderLegRequest,
+    OrderMarketSession,
     OrderPriceIncrement,
     OrderReference,
     OrderRequest,
     OrderResponse,
     OrderResult,
     OptionType,
+    OrderSearchRequest,
     OrderSide,
     OrderStatus,
     OrderSubscriptionConfig,
     OrderType,
     OrderUpdate,
+    OrderV2,
     OutOfDateStatus,
     OutOfDateStatusDescription,
     OutOfDateStatusType,
@@ -112,6 +115,7 @@ from .models import (
     SubscriptionStatus,
     TakeProfit,
     TimeInForce,
+    Trade,
     Trading,
     TradingPermission,
     TreasurySubtype,
@@ -132,7 +136,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.23"
+__version__ = "0.1.24"
 
 __all__ = [
     # Historic data
@@ -195,6 +199,10 @@ __all__ = [
     "OrderResponse",
     "OrderResult",
     "OrderStatus",
+    "OrderV2",
+    "OrderMarketSession",
+    "OrderSearchRequest",
+    "Trade",
     "GatewayTaxLotMatchingInstruction",
     "PriceIncrement",
     "NewOrder",
