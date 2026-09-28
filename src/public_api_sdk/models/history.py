@@ -62,6 +62,7 @@ class TransactionSecurityType(str, Enum):
     ALT = "ALT"
     TREASURY = "TREASURY"
     BOND = "BOND"
+    EVENTCONTRACT = "EVENTCONTRACT"
 
 
 class TransactionSide(str, Enum):

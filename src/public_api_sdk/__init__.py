@@ -10,6 +10,9 @@ from .models import (
     BarPeriod,
     BarsResponse,
     Base64File,
+    EventContractBarPeriod,
+    EventContractChart,
+    EventContractChartsResponse,
     LastSessionClose,
     LeadingFill,
     MarketSessionBars,
@@ -136,7 +139,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.24"
+__version__ = "0.1.25"
 
 __all__ = [
     # Historic data
@@ -144,6 +147,9 @@ __all__ = [
     "BarAggregation",
     "BarPeriod",
     "BarsResponse",
+    "EventContractBarPeriod",
+    "EventContractChart",
+    "EventContractChartsResponse",
     "LastSessionClose",
     "LeadingFill",
     "MarketSessionBars",

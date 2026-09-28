@@ -1,6 +1,10 @@
-"""Tests for the v2 order endpoints — `search_orders` / `get_order_v2` — and
-their models (`OrderV2`, `Trade`, `OrderMarketSession`, `OrderSearchRequest`),
-plus the `JOINT` account type added in the same spec revision.
+"""Tests for order search — `search_orders` (POST /order/search) and the
+deprecated `get_order_v2` alias — and their models (`OrderV2`, `Trade`,
+`OrderMarketSession`, `OrderSearchRequest`), plus the `JOINT` account type
+added in the same spec revision.
+
+The dedicated `/order/v2` endpoints were removed from the API in 2026-09:
+search moved to `/order/search` and `get_order` itself now returns `OrderV2`.
 
 Client tests patch ApiClient/AsyncApiClient and the auth managers at
 construction time so no real HTTP calls are made, mirroring the other client
@@ -331,6 +335,7 @@ class TestOrderSearchRequestSerialization:
             "TREASURY",
             "BOND",
             "INDEX",
+            "EVENTCONTRACT",
         }
         assert {t.value for t in InstrumentType} == spec_values
 
@@ -355,32 +360,36 @@ class TestAccountTypeJoint:
 
 
 class TestGetOrderV2:
-    def test_hits_v2_endpoint(self) -> None:
+    def test_deprecated_alias_hits_get_order_endpoint(self) -> None:
         client = _make_client()
         client.api_client.get = Mock(return_value=_order_v2_payload())
-        order = client.get_order_v2(_ORDER_ID)
+        with pytest.warns(DeprecationWarning, match="get_order_v2"):
+            order = client.get_order_v2(_ORDER_ID)
         url = client.api_client.get.call_args[0][0]
-        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/v2/{_ORDER_ID}"
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/{_ORDER_ID}"
         assert isinstance(order, OrderV2)
         assert order.trades is not None and len(order.trades) == 2
 
     def test_refreshes_token_first(self) -> None:
         client = _make_client()
         client.api_client.get = Mock(return_value=_order_v2_payload())
-        client.get_order_v2(_ORDER_ID)
+        with pytest.warns(DeprecationWarning):
+            client.get_order_v2(_ORDER_ID)
         client.auth_manager.refresh_token_if_needed.assert_called_once()
 
     def test_explicit_account_overrides_default(self) -> None:
         client = _make_client()
         client.api_client.get = Mock(return_value=_order_v2_payload())
-        client.get_order_v2(_ORDER_ID, account_id="OTHER_ACC")
+        with pytest.warns(DeprecationWarning):
+            client.get_order_v2(_ORDER_ID, account_id="OTHER_ACC")
         url = client.api_client.get.call_args[0][0]
-        assert url == f"/userapigateway/trading/OTHER_ACC/order/v2/{_ORDER_ID}"
+        assert url == f"/userapigateway/trading/OTHER_ACC/order/{_ORDER_ID}"
 
     def test_no_account_raises_value_error(self) -> None:
         client = _make_client(default_account=None)
         with pytest.raises(ValueError, match="No account ID provided"):
-            client.get_order_v2(_ORDER_ID)
+            with pytest.warns(DeprecationWarning):
+                client.get_order_v2(_ORDER_ID)
 
     def test_404_propagates_as_not_found(self) -> None:
         client = _make_client()
@@ -388,7 +397,8 @@ class TestGetOrderV2:
             side_effect=NotFoundError("Order not found.", 404, {})
         )
         with pytest.raises(NotFoundError) as exc_info:
-            client.get_order_v2(_ORDER_ID)
+            with pytest.warns(DeprecationWarning):
+                client.get_order_v2(_ORDER_ID)
         assert exc_info.value.status_code == 404
 
 
@@ -398,7 +408,7 @@ class TestSearchOrders:
         client.api_client.post = Mock(return_value=_orders_payload(_order_v2_payload()))
         orders = client.search_orders()
         url = client.api_client.post.call_args[0][0]
-        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/v2"
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/search"
         assert client.api_client.post.call_args.kwargs["json_data"] == {}
         assert len(orders) == 1
         assert isinstance(orders[0], OrderV2)
@@ -453,7 +463,7 @@ class TestSearchOrders:
         client.api_client.post = Mock(return_value=_orders_payload())
         client.search_orders(account_id="OTHER_ACC")
         url = client.api_client.post.call_args[0][0]
-        assert url == "/userapigateway/trading/OTHER_ACC/order/v2"
+        assert url == "/userapigateway/trading/OTHER_ACC/order/search"
 
     def test_no_account_raises_value_error(self) -> None:
         client = _make_client(default_account=None)
@@ -476,12 +486,13 @@ class TestSearchOrders:
 
 class TestAsyncGetOrderV2:
     @pytest.mark.asyncio
-    async def test_hits_v2_endpoint(self) -> None:
+    async def test_deprecated_alias_hits_get_order_endpoint(self) -> None:
         client = _make_async_client()
         client.api_client.get = AsyncMock(return_value=_order_v2_payload())
-        order = await client.get_order_v2(_ORDER_ID)
+        with pytest.warns(DeprecationWarning, match="get_order_v2"):
+            order = await client.get_order_v2(_ORDER_ID)
         url = client.api_client.get.call_args[0][0]
-        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/v2/{_ORDER_ID}"
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/{_ORDER_ID}"
         assert order.equity_market_session is OrderMarketSession.REGULAR
         client.auth_manager.refresh_token_if_needed.assert_awaited_once()
 
@@ -489,7 +500,8 @@ class TestAsyncGetOrderV2:
     async def test_no_account_raises_value_error(self) -> None:
         client = _make_async_client(default_account=None)
         with pytest.raises(ValueError, match="No account ID provided"):
-            await client.get_order_v2(_ORDER_ID)
+            with pytest.warns(DeprecationWarning):
+                await client.get_order_v2(_ORDER_ID)
 
     @pytest.mark.asyncio
     async def test_404_propagates_as_not_found(self) -> None:
@@ -498,7 +510,8 @@ class TestAsyncGetOrderV2:
             side_effect=NotFoundError("Order not found.", 404, {})
         )
         with pytest.raises(NotFoundError):
-            await client.get_order_v2(_ORDER_ID)
+            with pytest.warns(DeprecationWarning):
+                await client.get_order_v2(_ORDER_ID)
 
 
 class TestAsyncSearchOrders:
@@ -510,7 +523,7 @@ class TestAsyncSearchOrders:
         )
         orders = await client.search_orders()
         url = client.api_client.post.call_args[0][0]
-        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/v2"
+        assert url == f"/userapigateway/trading/{_ACCOUNT}/order/search"
         assert client.api_client.post.call_args.kwargs["json_data"] == {}
         assert len(orders) == 1 and isinstance(orders[0], OrderV2)
 

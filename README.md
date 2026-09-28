@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.24-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.25-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -16,7 +16,7 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
 - [API Reference](#api-reference)
   - [Client Configuration](#client-configuration) — API key, token validity, default account
   - [Account Management](#account-management) — accounts, portfolio, history
-  - [Market Data](#market-data) — quotes, instruments, historic bars
+  - [Market Data](#market-data) — quotes, instruments, historic bars, event-contract bars
   - [Options Trading](#options-trading) — expirations, chains, greeks
   - [Order Management](#order-management) — preflight, spreads, brackets, placing, tracking & searching orders
   - [Price Subscription](#price-subscription)
@@ -467,7 +467,7 @@ Available aggregations: `ONE_MINUTE`, `FIVE_MINUTES`, `TEN_MINUTES`, `FIFTEEN_MI
 
 ##### Instrument type
 
-`get_bars` defaults to `InstrumentType.EQUITY`. Pass `instrument_type` to request bars for crypto, options, or indices:
+`get_bars` defaults to `InstrumentType.EQUITY`. Pass `instrument_type` to request bars for crypto, options, indices, or event contracts:
 
 ```python
 from public_api_sdk import BarAggregation, BarPeriod, InstrumentType
@@ -484,7 +484,7 @@ bars = client.get_bars(
 bars = client.get_bars("SPX", BarPeriod.YEAR, instrument_type=InstrumentType.INDEX)
 ```
 
-Supported values: `EQUITY`, `CRYPTO`, `OPTION`, `INDEX`. Any other `InstrumentType` raises `ValueError`.
+Supported values: `EQUITY`, `CRYPTO`, `OPTION`, `INDEX`, `EVENTCONTRACT`. Any other `InstrumentType` raises `ValueError`. To chart several contracts of one event together, use [`get_event_contract_bars`](#get-event-contract-bars).
 
 ##### Trading session toggle
 
@@ -563,6 +563,32 @@ bars = client.get_bars(
 if bars.total_gain_loss is not None:
     print(f"Gain/loss since purchase: ${bars.total_gain_loss} ({bars.total_gain_loss_percentage}%)")
 ```
+
+#### Get Event Contract Bars
+
+Fetch chart bars for up to **8** event contracts (prediction-market outcomes) belonging to one event. `event_id` is the `-EVENT` grouping id; `symbols` are its `-EVENTCONTRACT` symbols. `period` is one of `DAY`, `WEEK`, `MONTH`, `ALL`, measured back from now — or from the event's close time once it has stopped trading, so bars never run past the last trade.
+
+```python
+from public_api_sdk import EventContractBarPeriod
+
+charts = client.get_event_contract_bars(
+    "KALSHI.KXBALANCESHEET-EO26-EVENT",
+    EventContractBarPeriod.WEEK,
+    [
+        "KALSHI.KXBALANCESHEET-EO26-6.6.Y-EVENTCONTRACT",
+        "KALSHI.KXBALANCESHEET-EO26-6.6.N-EVENTCONTRACT",
+    ],
+)
+for chart in charts.charts:
+    print(f"{chart.symbol}: {chart.current_price} (prev close {chart.previous_close_price})")
+    for bar in chart.bars:
+        print(f"  {bar.timestamp}  C={bar.close}")
+```
+
+- Prices and OHLC values are in **dollars from 0.00 to 1.00** for the side the symbol names — a `.N` symbol carries the NO prices. The price is the implied probability; multiply by 100 for cents / percent.
+- Bars start at the first period with a price, so charts in one response can start at different timestamps — **align them by timestamp, not by index**.
+- A symbol is omitted from `charts` when it is unknown, has no candles, or has no price in the period. If none of the symbols have data the API returns 404 (`NotFoundError`).
+- Passing no symbols, more than 8 symbols, or an empty `event_id` raises `ValueError` before any request is sent.
 
 ### Options Trading
 
@@ -1322,30 +1348,20 @@ The async client's counterpart is [`AsyncNewOrder`](#order-placement-and-trackin
 
 #### Get Order Status
 
-Retrieve the status and details of a specific order.
+Retrieve the status and details of a specific order. `get_order` returns an `OrderV2` (a subclass of `Order`), which adds the market session the order ran in, the fill / replace / last-modified timestamps, and the individual trades that filled it. It only covers orders created within the **last 30 days** — older orders return a `NotFoundError`.
 
 ```python
-order_details = client.get_order(
+order = client.get_order(
     order_id="YOUR_ORDER_ID",
     account_id="YOUR_ACCOUNT"  # optional if default set
 )
-print(f"Order status: {order_details.status}")
-```
-
-#### Get Order Details (v2)
-
-The v2 order endpoint returns everything `get_order` does plus the market session the order ran in, the fill / replace / last-modified timestamps, and the individual trades that filled it. It only covers orders created within the **last 30 days** — older orders return a `NotFoundError`.
-
-```python
-order = client.get_order_v2(
-    order_id="YOUR_ORDER_ID",
-    account_id="YOUR_ACCOUNT"  # optional if default set
-)
-print(f"{order.status} in session {order.equity_market_session}")
+print(f"Order status: {order.status} in session {order.equity_market_session}")
 print(f"Filled at {order.filled_at}, last modified {order.last_modified}")
 for trade in order.trades or []:
     print(f"  {trade.side} {trade.quantity} @ {trade.price} ({trade.timestamp})")
 ```
+
+> **Deprecated:** `get_order_v2()` — the API removed the dedicated v2 get-order endpoint and `get_order` now returns the same `OrderV2` view. `get_order_v2()` still works as an alias of `get_order()` but emits a `DeprecationWarning` and will be removed in a future release.
 
 #### Search Orders
 
@@ -1654,7 +1670,7 @@ instruments = await client.get_all_instruments(
 `get_bars` is a coroutine on the async client — `await` it directly, or use `asyncio.gather` to fetch multiple symbols concurrently:
 
 ```python
-from public_api_sdk import BarAggregation, BarPeriod, InstrumentType
+from public_api_sdk import BarAggregation, BarPeriod, EventContractBarPeriod, InstrumentType
 
 # Single symbol (defaults to EQUITY)
 bars = await client.get_bars("AAPL", BarPeriod.YEAR)
@@ -1672,6 +1688,13 @@ btc_bars = await client.get_bars(
     BarPeriod.YTD,
     instrument_type=InstrumentType.CRYPTO,
     aggregation=BarAggregation.ONE_HOUR,
+)
+
+# Event contracts of one event (up to 8 symbols, prices 0.00–1.00)
+charts = await client.get_event_contract_bars(
+    "KALSHI.KXBALANCESHEET-EO26-EVENT",
+    EventContractBarPeriod.DAY,
+    ["KALSHI.KXBALANCESHEET-EO26-6.6.Y-EVENTCONTRACT"],
 )
 
 # Multiple symbols concurrently
@@ -1753,9 +1776,8 @@ print(f"Status: {order_details.status}")
 # Cancel
 await client.cancel_order(order_id="ORDER-ID")
 
-# v2 view — adds market session, fill/replace timestamps and trades (last 30 days only)
-order_v2 = await client.get_order_v2(order_id="ORDER-ID")
-print(f"{order_v2.status}: {len(order_v2.trades or [])} trade(s)")
+# get_order returns OrderV2 — market session, fill/replace timestamps and trades (last 30 days only)
+print(f"{order_details.status}: {len(order_details.trades or [])} trade(s)")
 
 # Search orders (up to 500, last 30 days; all filters optional)
 filled = await client.search_orders(OrderSearchRequest(status=OrderStatus.FILLED))

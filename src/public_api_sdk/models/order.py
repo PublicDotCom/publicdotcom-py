@@ -1066,7 +1066,7 @@ class Order(BaseModel):
 
 class OrderMarketSession(str, Enum):
     """The equity market session an order was placed in, as reported by the
-    order-search / get-order-v2 endpoints.
+    order-search and get-order endpoints.
 
     This is the *response-side* vocabulary and differs from the request-side
     :class:`EquityMarketSession` (``CORE`` / ``EXTENDED`` /
@@ -1109,8 +1109,7 @@ class Trade(BaseModel):
 
 
 class OrderV2(Order):
-    """An order as returned by the v2 order endpoints (`search_orders` and
-    `get_order_v2`).
+    """An order as returned by `get_order` and `search_orders`.
 
     Maps to the spec's `GatewayOrderV2` — a strict superset of :class:`Order`
     that adds the market session, the fill/replace/modification timestamps and
