@@ -19,6 +19,19 @@ class BarPeriod(str, Enum):
     SINCE_PURCHASE = "SINCE_PURCHASE"
 
 
+class EventContractBarPeriod(str, Enum):
+    """Chart period for :meth:`PublicApiClient.get_event_contract_bars`.
+
+    Measured back from now, or from the event's close time once it has stopped
+    trading, so bars never run past the last trade.
+    """
+
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+    ALL = "ALL"
+
+
 class TradingSessionToggle(str, Enum):
     """Which sessions to include on the DAY equity chart.
 
@@ -249,4 +262,57 @@ class BarsResponse(BaseModel):
             " start to the first real bar. Not emitted for the DAY chart or"
             " the ALL / SINCE_PURCHASE periods."
         ),
+    )
+
+
+class EventContractChart(BaseModel):
+    """Chart bars for a single event contract.
+
+    Prices and OHLC values are in dollars (0.00 to 1.00) for the side the
+    symbol names, so a ``.N`` symbol carries the NO prices. The price is the
+    implied probability — multiply by 100 for cents / percent. Bars start at
+    the first period with a price, so charts in one response can start at
+    different timestamps: align them by ``timestamp``, not by index.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    symbol: str = Field(..., description="The -EVENTCONTRACT symbol.")
+    previous_close_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("previous_close_price", "previousClosePrice"),
+        serialization_alias="previousClosePrice",
+    )
+    current_price: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("current_price", "currentPrice"),
+        serialization_alias="currentPrice",
+    )
+    total_gain_loss: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("total_gain_loss", "totalGainLoss"),
+        serialization_alias="totalGainLoss",
+    )
+    total_gain_loss_percentage: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices(
+            "total_gain_loss_percentage", "totalGainLossPercentage"
+        ),
+        serialization_alias="totalGainLossPercentage",
+    )
+    bars: List[Bar] = Field(default_factory=list, description="Chart bars.")
+
+
+class EventContractChartsResponse(BaseModel):
+    """Response of :meth:`PublicApiClient.get_event_contract_bars`.
+
+    A requested symbol is omitted from ``charts`` when it is unknown, has no
+    candles, or has no price in the requested period.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    period: Optional[str] = Field(None, description="The requested period.")
+    charts: List[EventContractChart] = Field(
+        default_factory=list, description="One chart per symbol with data."
     )

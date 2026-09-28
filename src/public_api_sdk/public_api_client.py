@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
@@ -16,6 +17,8 @@ from .models import (
     BondSearchResponsePage,
     CancelAndReplaceRequest,
     EquityMarketSession,
+    EventContractBarPeriod,
+    EventContractChartsResponse,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -76,8 +79,11 @@ _BAR_INSTRUMENT_TYPES = frozenset(
         InstrumentType.CRYPTO,
         InstrumentType.OPTION,
         InstrumentType.INDEX,
+        InstrumentType.EVENTCONTRACT,
     }
 )
+
+_MAX_EVENT_CONTRACT_SYMBOLS = 8
 
 
 class PublicApiClientConfiguration:
@@ -455,8 +461,9 @@ class PublicApiClient:
         Args:
             symbol: The ticker symbol (e.g. ``"AAPL"``).
             period: The time window to retrieve (e.g. ``BarPeriod.YEAR``).
-            instrument_type: One of ``EQUITY``, ``CRYPTO``, ``OPTION``, ``INDEX``.
-                Defaults to ``EQUITY``.
+            instrument_type: One of ``EQUITY``, ``CRYPTO``, ``OPTION``, ``INDEX``,
+                ``EVENTCONTRACT``. Defaults to ``EQUITY``. For several contracts
+                of one event, prefer ``get_event_contract_bars``.
             aggregation: Optional bar size override. When omitted the server
                 chooses an appropriate aggregation for the period.
             purchase_date: Required when ``period`` is ``BarPeriod.SINCE_PURCHASE``.
@@ -481,7 +488,7 @@ class PublicApiClient:
         if instrument_type not in _BAR_INSTRUMENT_TYPES:
             raise ValueError(
                 f"{instrument_type} is not supported for historic bars; "
-                f"expected one of EQUITY, CRYPTO, OPTION, INDEX"
+                f"expected one of EQUITY, CRYPTO, OPTION, INDEX, EVENTCONTRACT"
             )
         self.auth_manager.refresh_token_if_needed()
         path = (
@@ -499,6 +506,60 @@ class PublicApiClient:
             params["ipoDate"] = ipo_date
         response = self.api_client.get(path, params=params or None)
         return BarsResponse(**response)
+
+    def get_event_contract_bars(
+        self,
+        event_id: str,
+        period: EventContractBarPeriod,
+        symbols: List[str],
+    ) -> EventContractChartsResponse:
+        """Fetch chart bars for up to 8 event contracts of one event.
+
+        Prices and OHLC values are in dollars (0.00 to 1.00) for the side the
+        symbol names, so a ``.N`` symbol carries the NO prices. The price is the
+        implied probability — multiply by 100 for cents / percent. Bars start
+        at the first period with a price, so charts in one response can start
+        at different timestamps: align them by timestamp, not by index. A
+        symbol is omitted from the response when it is unknown, has no candles,
+        or has no price in the requested period.
+
+        Args:
+            event_id: The ``-EVENT`` grouping id the contracts belong to (e.g.
+                ``"KALSHI.KXBALANCESHEET-EO26-EVENT"``). Used server-side to
+                fetch current prices and, once the event has stopped trading,
+                its close time.
+            period: ``DAY``, ``WEEK``, ``MONTH`` or ``ALL``. Measured back from
+                now, or from the event's close time once it has stopped trading.
+            symbols: 1–8 ``-EVENTCONTRACT`` symbols (e.g.
+                ``"KALSHI.KXBALANCESHEET-EO26-6.6.Y-EVENTCONTRACT"``). A single
+                string is treated as one symbol.
+
+        Returns:
+            EventContractChartsResponse with one chart per symbol that has data.
+
+        Raises:
+            ValueError: If ``event_id`` is empty, or ``symbols`` is empty or
+                holds more than 8 symbols.
+        """
+        if not event_id:
+            raise ValueError("event_id is required")
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        symbols = [symbol.strip() for symbol in symbols if symbol and symbol.strip()]
+        if not symbols:
+            raise ValueError("At least one event contract symbol is required")
+        if len(symbols) > _MAX_EVENT_CONTRACT_SYMBOLS:
+            raise ValueError(
+                f"At most {_MAX_EVENT_CONTRACT_SYMBOLS} event contract symbols "
+                f"are allowed per request, got {len(symbols)}"
+            )
+        self.auth_manager.refresh_token_if_needed()
+        response = self.api_client.get(
+            f"/userapigateway/historicdata/event-contracts/{event_id}"
+            f"/bars/{period.value}",
+            params={"symbols": ",".join(symbols)},
+        )
+        return EventContractChartsResponse(**response)
 
     def get_option_greeks(
         self,
@@ -1192,43 +1253,14 @@ class PublicApiClient:
         self,
         order_id: str,
         account_id: Optional[str] = None,
-    ) -> Order:
-        """
-        Retrieves the status and details of a specific order for the given account.\n\n
-        Note: Order placement is asynchronous. This endpoint may return an error
-        if the order has not yet been indexed for retrieval.\nIn some cases,
-        the order may already be active in the market but momentarily not yet
-        visible through the API due to eventual consistency.
-
-        Args:
-            order_id: Order ID
-            account_id: Account ID (optional if `default_account_number` is set)
-
-        Returns:
-            Order details, including the status.
-        """
-        account_id = self.__get_account_id(account_id)
-        self.auth_manager.refresh_token_if_needed()
-        response = self.api_client.get(
-            f"/userapigateway/trading/{account_id}/order/{order_id}"
-        )
-        return Order(**response)
-
-    def get_order_v2(
-        self,
-        order_id: str,
-        account_id: Optional[str] = None,
     ) -> OrderV2:
         """
-        Retrieves the status and details of a specific order using the v2 order
-        endpoint, which additionally reports the market session, the
-        fill/replace/modification timestamps and the individual trades.
+        Retrieves the status and details of a specific order for the given account.
 
         Works only for orders created within the last 30 days; older orders
-        return 404 (`NotFoundError`). Use `get_order` for the v1 view.
-
-        Note: Order placement is asynchronous. This endpoint may return an error
-        if the order has not yet been indexed for retrieval.
+        return 404 (`NotFoundError`). The returned `OrderV2` is a subclass of
+        `Order` that additionally reports the market session, the
+        fill/replace/modification timestamps and the individual trades.
 
         Args:
             order_id: Order ID
@@ -1240,9 +1272,35 @@ class PublicApiClient:
         account_id = self.__get_account_id(account_id)
         self.auth_manager.refresh_token_if_needed()
         response = self.api_client.get(
-            f"/userapigateway/trading/{account_id}/order/v2/{order_id}"
+            f"/userapigateway/trading/{account_id}/order/{order_id}"
         )
         return OrderV2(**response)
+
+    def get_order_v2(
+        self,
+        order_id: str,
+        account_id: Optional[str] = None,
+    ) -> OrderV2:
+        """
+        Deprecated alias of `get_order`.
+
+        The dedicated v2 get-order endpoint was removed from the API;
+        `get_order` now returns the same `OrderV2` view. This method delegates
+        to `get_order` and will be removed in a future release.
+
+        Args:
+            order_id: Order ID
+            account_id: Account ID (optional if `default_account_number` is set)
+
+        Returns:
+            OrderV2 details, including the status and trades.
+        """
+        warnings.warn(
+            "get_order_v2() is deprecated; use get_order(), which now returns OrderV2",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.get_order(order_id, account_id=account_id)
 
     def search_orders(
         self,
@@ -1268,7 +1326,7 @@ class PublicApiClient:
         self.auth_manager.refresh_token_if_needed()
         request = order_search_request or OrderSearchRequest()
         response = self.api_client.post(
-            f"/userapigateway/trading/{account_id}/order/v2",
+            f"/userapigateway/trading/{account_id}/order/search",
             json_data=request.model_dump(by_alias=True, exclude_none=True),
         )
         return [OrderV2(**order) for order in response.get("orders", [])]
