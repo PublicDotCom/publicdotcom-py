@@ -31,6 +31,10 @@ from .models import (
     EquityMarketSession,
     EventContractBarPeriod,
     EventContractChartsResponse,
+    EventCategoriesResponse,
+    EventDetails,
+    EventSummaryPage,
+    EventSummaryRequest,
     GreeksResponse,
     HistoryRequest,
     HistoryResponsePage,
@@ -621,6 +625,88 @@ class AsyncPublicApiClient:
             params={"symbols": ",".join(symbols)},
         )
         return EventContractChartsResponse(**response)
+
+    async def get_event_categories(self) -> EventCategoriesResponse:
+        """List the categories for browsing event contracts.
+
+        Each category carries its subcategories and the frequency filters it
+        supports. Pass a returned ``category`` value to ``get_event_summary``.
+
+        Returns:
+            EventCategoriesResponse with the available categories.
+        """
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            "/userapigateway/eventcontract/summary/categories"
+        )
+        return EventCategoriesResponse(**response)
+
+    async def get_event_summary(
+        self,
+        event_summary_request: Optional[EventSummaryRequest] = None,
+    ) -> EventSummaryPage:
+        """Page through event summaries (prediction-market events).
+
+        Optionally limited to a category and filtered by event symbol or
+        frequency. Each result includes the event's symbol, title, volume and
+        status; pass its ``event_symbol`` to ``get_event_details`` for outcomes,
+        contracts and pricing. Results can include resolved and halted events.
+
+        Up to 100 events are returned per page. To fetch the next page, send
+        the same request with ``next_token`` set to the previous page's
+        ``next_token``; it is ``None`` on the last page.
+
+        Args:
+            event_summary_request: Sorting, filters and pagination token.
+                Defaults to ``EventSummaryRequest()`` (sorted by ``VOLUME``).
+
+        Returns:
+            EventSummaryPage with the events and the next page's token.
+
+        Raises:
+            ValidationError: If the API rejects the request body (HTTP 400).
+        """
+        await self.auth_manager.refresh_token_if_needed()
+        request = event_summary_request or EventSummaryRequest()
+        response = await self.api_client.post(
+            "/userapigateway/eventcontract/summary",
+            json_data=request.model_dump(by_alias=True, exclude_none=True),
+        )
+        return EventSummaryPage(**response)
+
+    async def get_event_details(
+        self,
+        event_symbol: str,
+        include_all_outcomes: bool = True,
+    ) -> EventDetails:
+        """Retrieve full details for a single event.
+
+        Returns its outcomes, the YES/NO contracts for each outcome with current
+        pricing, the trading timeline, and the CFTC contract terms.
+
+        Args:
+            event_symbol: The ``event_symbol`` returned by ``get_event_summary``
+                (e.g. ``"KALSHI.KXBALANCESHEET-EO26"``).
+            include_all_outcomes: When ``True`` (default) every outcome is
+                returned; when ``False`` only a short list of up to 8 outcomes.
+                ``outcome_count`` always reports the unfiltered total.
+
+        Returns:
+            EventDetails for the event.
+
+        Raises:
+            ValueError: If ``event_symbol`` is empty.
+            ValidationError: If no event matches ``event_symbol`` (HTTP 400,
+                error code ``7004``).
+        """
+        if not event_symbol or not event_symbol.strip():
+            raise ValueError("event_symbol is required")
+        await self.auth_manager.refresh_token_if_needed()
+        response = await self.api_client.get(
+            f"/userapigateway/eventcontract/details/{event_symbol.strip()}",
+            params={"includeAllOutcomes": "true" if include_all_outcomes else "false"},
+        )
+        return EventDetails(**response)
 
     async def get_option_greeks(
         self,

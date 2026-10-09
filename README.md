@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.25-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.26-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -16,7 +16,7 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
 - [API Reference](#api-reference)
   - [Client Configuration](#client-configuration) — API key, token validity, default account
   - [Account Management](#account-management) — accounts, portfolio, history
-  - [Market Data](#market-data) — quotes, instruments, historic bars, event-contract bars
+  - [Market Data](#market-data) — quotes, instruments, historic bars, event-contract bars & discovery
   - [Options Trading](#options-trading) — expirations, chains, greeks
   - [Order Management](#order-management) — preflight, spreads, brackets, placing, tracking & searching orders
   - [Price Subscription](#price-subscription)
@@ -589,6 +589,59 @@ for chart in charts.charts:
 - Bars start at the first period with a price, so charts in one response can start at different timestamps — **align them by timestamp, not by index**.
 - A symbol is omitted from `charts` when it is unknown, has no candles, or has no price in the period. If none of the symbols have data the API returns 404 (`NotFoundError`).
 - Passing no symbols, more than 8 symbols, or an empty `event_id` raises `ValueError` before any request is sent.
+
+#### Browse Event Contracts
+
+Discover prediction-market events: list the categories, page through event summaries, then fetch one event's outcomes and YES/NO contracts with current pricing. None of these calls take an account ID.
+
+```python
+from public_api_sdk import (
+    EventFrequency,
+    EventSortingMode,
+    EventSummaryFilters,
+    EventSummaryRequest,
+)
+
+# 1. Categories (pass a category value to get_event_summary)
+for category in client.get_event_categories().categories:
+    print(category.category, category.subcategories)
+
+# 2. Event summaries — up to 100 per page, paginated with next_token
+request = EventSummaryRequest(
+    sorting_mode=EventSortingMode.VOLUME,  # default; also EXPIRATION, RECENTLY_ADDED
+    category="Economics",
+    display_resolved_events=False,
+)
+page = client.get_event_summary(request)
+for event in page.content:
+    print(f"{event.event_symbol}: {event.title} (volume {event.volume})")
+while page.next_token:
+    request.next_token = page.next_token
+    page = client.get_event_summary(request)
+
+# Filter by event symbol / frequency (the API requires both lists when filters are sent)
+page = client.get_event_summary(
+    EventSummaryRequest(
+        filters=EventSummaryFilters(
+            event_symbols=["KALSHI.KXBALANCESHEET-EO26"],
+            frequencies=[EventFrequency.ALL],
+        )
+    )
+)
+
+# 3. Event details — outcomes, contracts, timeline, CFTC terms
+details = client.get_event_details("KALSHI.KXBALANCESHEET-EO26")
+print(f"{details.title} [{details.exchange}] — {details.outcome_count} outcomes")
+for outcome in details.outcomes:
+    print(f"  {outcome.title}: {outcome.state} / {outcome.trading}")
+    for contract in outcome.contracts:
+        print(f"    {contract.predicted_outcome}: bid {contract.bid} ask {contract.ask} p={contract.probability}")
+```
+
+- Contract prices are in **dollars from 0.00 to 1.00**; `probability` is the YES contract's last price (1 minus it for the NO contract).
+- `get_event_details(..., include_all_outcomes=False)` returns only a short list of up to 8 outcomes; `outcome_count` still reports the full number.
+- An unknown `event_symbol` returns HTTP 400 with error code `7004` (`ValidationError`, check `error.error_code`). An empty `event_symbol` raises `ValueError` before any request is sent.
+- Enum fields in responses (`exchange`, `state`, `settled_outcome`, `trading`, `predicted_outcome`, `frequencies`) fall back to `UNKNOWN` for values this SDK version does not know yet.
 
 ### Options Trading
 
@@ -1670,7 +1723,13 @@ instruments = await client.get_all_instruments(
 `get_bars` is a coroutine on the async client — `await` it directly, or use `asyncio.gather` to fetch multiple symbols concurrently:
 
 ```python
-from public_api_sdk import BarAggregation, BarPeriod, EventContractBarPeriod, InstrumentType
+from public_api_sdk import (
+    BarAggregation,
+    BarPeriod,
+    EventContractBarPeriod,
+    EventSummaryRequest,
+    InstrumentType,
+)
 
 # Single symbol (defaults to EQUITY)
 bars = await client.get_bars("AAPL", BarPeriod.YEAR)
@@ -1696,6 +1755,11 @@ charts = await client.get_event_contract_bars(
     EventContractBarPeriod.DAY,
     ["KALSHI.KXBALANCESHEET-EO26-6.6.Y-EVENTCONTRACT"],
 )
+
+# Event-contract discovery
+categories = await client.get_event_categories()
+page = await client.get_event_summary(EventSummaryRequest(category="Economics"))
+details = await client.get_event_details(page.content[0].event_symbol)
 
 # Multiple symbols concurrently
 aapl_bars, msft_bars = await asyncio.gather(

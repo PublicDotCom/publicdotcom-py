@@ -13,6 +13,26 @@ from .models import (
     EventContractBarPeriod,
     EventContractChart,
     EventContractChartsResponse,
+    CftcContract,
+    EventCategoriesResponse,
+    EventCategory,
+    EventCategoryFrequencies,
+    EventContract,
+    EventContractSide,
+    EventDetails,
+    EventExchange,
+    EventFrequency,
+    EventOutcome,
+    EventOutcomeState,
+    EventSettledOutcome,
+    EventSortingMode,
+    EventSummary,
+    EventSummaryFilters,
+    EventSummaryPage,
+    EventSummaryRequest,
+    EventTimeline,
+    EventTradingMode,
+    ResolutionSource,
     LastSessionClose,
     LeadingFill,
     MarketSessionBars,
@@ -139,7 +159,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.25"
+__version__ = "0.1.26"
 
 __all__ = [
     # Historic data
@@ -154,6 +174,27 @@ __all__ = [
     "LeadingFill",
     "MarketSessionBars",
     "TradingSessionToggle",
+    # Event contracts
+    "CftcContract",
+    "EventCategoriesResponse",
+    "EventCategory",
+    "EventCategoryFrequencies",
+    "EventContract",
+    "EventContractSide",
+    "EventDetails",
+    "EventExchange",
+    "EventFrequency",
+    "EventOutcome",
+    "EventOutcomeState",
+    "EventSettledOutcome",
+    "EventSortingMode",
+    "EventSummary",
+    "EventSummaryFilters",
+    "EventSummaryPage",
+    "EventSummaryRequest",
+    "EventTimeline",
+    "EventTradingMode",
+    "ResolutionSource",
     # Auth
     "AuthConfig",
     "AsyncAuthConfig",
