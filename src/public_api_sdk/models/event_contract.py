@@ -9,10 +9,11 @@ For chart bars of an event's contracts see
 """
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import AliasChoices, BaseModel, Field, field_serializer, field_validator
 
@@ -132,6 +133,26 @@ class EventContractSide(str, Enum):
         return cls.UNKNOWN
 
 
+# Exchange prefix, ".", series ticker, "-", then a non-empty event suffix.
+_EVENT_SYMBOL_PATTERN = re.compile(r"[^.\s-]+\.([^.\s-]+)-\S+")
+
+
+def _series_of(event_symbol: str) -> Optional[str]:
+    """Return the series ticker of an event symbol, or ``None``.
+
+    ``"KALSHI.KXBTC15M-26OCT161345"`` → ``"KXBTC15M"``. The same series comes
+    back for the event's ``-EVENT`` grouping id and its contract symbols
+    (``.Y``/``.N`` and ``-EVENTCONTRACT``), since they all extend the event
+    symbol. A symbol without an exchange prefix, without a ``-`` suffix, or
+    that is empty gives ``None``: every event symbol the API returns has both,
+    so anything else is not an event symbol and the series would be a guess.
+    Outcome ids (e.g. ``"KXBTC15M-26OCT161345-45"``) carry no exchange prefix
+    and also give ``None``.
+    """
+    match = _EVENT_SYMBOL_PATTERN.fullmatch(event_symbol)
+    return match.group(1) if match else None
+
+
 # --- Categories -------------------------------------------------------------
 
 
@@ -174,17 +195,19 @@ class EventCategoriesResponse(BaseModel):
 class EventSummaryFilters(BaseModel):
     """Optional filter block of :class:`EventSummaryRequest`.
 
-    Both ``event_symbols`` and ``frequencies`` are required by the API when the
-    block is sent.
+    The API requires both ``event_symbols`` and ``frequencies`` when the block
+    is sent. ``event_symbols`` defaults to an empty list, which matches every
+    event, so ``EventSummaryFilters(frequencies=[...])`` filters by frequency
+    alone.
     """
 
     model_config = {"populate_by_name": True}
 
     event_symbols: List[str] = Field(
-        ...,
+        default_factory=list,
         validation_alias=AliasChoices("event_symbols", "eventSymbols"),
         serialization_alias="eventSymbols",
-        description="Only return these events (eventSymbol values).",
+        description="Only return these events (eventSymbol values); empty = all.",
     )
     frequencies: List[EventFrequency] = Field(
         ..., description="Only return events recurring at these frequencies."
@@ -272,7 +295,11 @@ class EventSummaryRequest(BaseModel):
 
 
 class EventSummary(BaseModel):
-    """A single event in an event summary page (no outcomes)."""
+    """A single event in an event summary page (no outcomes).
+
+    ``series`` is the series ticker derived from ``event_symbol`` (see
+    :attr:`series`); it is not an API field and is not serialized.
+    """
 
     model_config = {"populate_by_name": True}
 
@@ -296,8 +323,22 @@ class EventSummary(BaseModel):
     category: Optional[str] = Field(None)
     subcategories: List[str] = Field(default_factory=list)
     symbols: List[str] = Field(
-        default_factory=list, description="The event's contract symbols."
+        default_factory=list,
+        description=(
+            "Related instrument symbols, e.g. BTC-CRYPTO, IBIT; often empty. "
+            "Not the event's contracts: those come from `get_event_details`."
+        ),
     )
+
+    @property
+    def series(self) -> Optional[str]:
+        """Series ticker of the event, e.g. ``"KXBTC15M"``.
+
+        Derived from ``event_symbol``; groups the events of a recurring
+        market such as a 15-minute window. ``None`` if ``event_symbol`` is
+        not of the form ``EXCHANGE.SERIES-SUFFIX``.
+        """
+        return _series_of(self.event_symbol)
 
 
 class EventSummaryPage(BaseModel):
@@ -427,7 +468,12 @@ class EventContract(BaseModel):
 
 
 class EventOutcome(BaseModel):
-    """One outcome of an event, holding its YES and NO contracts."""
+    """One outcome of an event, holding its YES and NO contracts.
+
+    ``yes``, ``no``, ``close_time``, ``seconds_left``, ``is_tradable`` and
+    ``winner`` are read-only shortcuts derived from the fields below; they are
+    not API fields and are not serialized.
+    """
 
     model_config = {"populate_by_name": True}
 
@@ -435,7 +481,7 @@ class EventOutcome(BaseModel):
         ...,
         validation_alias=AliasChoices("outcome_id", "outcomeId"),
         serialization_alias="outcomeId",
-        description='e.g. "KALSHI.KXBALANCESHEET-EO26-6.6".',
+        description='e.g. "KXBALANCESHEET-EO26-6.6" (no exchange prefix).',
     )
     title: Optional[str] = Field(None, description='e.g. "ABOVE $6.6 TRILLION".')
     rules: Optional[str] = Field(
@@ -452,9 +498,85 @@ class EventOutcome(BaseModel):
     trading: Optional[EventTradingMode] = Field(None)
     contracts: List[EventContract] = Field(default_factory=list)
 
+    def _contract(self, side: EventContractSide) -> Optional[EventContract]:
+        return next((c for c in self.contracts if c.predicted_outcome == side), None)
+
+    @property
+    def yes(self) -> Optional[EventContract]:
+        """The YES contract, or ``None`` if the outcome has none."""
+        return self._contract(EventContractSide.YES)
+
+    @property
+    def no(self) -> Optional[EventContract]:
+        """The NO contract, or ``None`` if the outcome has none."""
+        return self._contract(EventContractSide.NO)
+
+    @property
+    def close_time(self) -> Optional[datetime]:
+        """When trading closes (``timeline.close_time``)."""
+        return self.timeline.close_time if self.timeline else None
+
+    @property
+    def seconds_left(self) -> Optional[float]:
+        """Seconds until ``close_time`` (0 once it has passed), or ``None``.
+
+        Computed from the current time on each access.
+        """
+        close_time = self.close_time
+        if close_time is None:
+            return None
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        return max(0.0, (close_time - datetime.now(timezone.utc)).total_seconds())
+
+    @property
+    def is_tradable(self) -> bool:
+        """Whether the outcome accepts buys and sells right now.
+
+        Requires ``state`` ``STATE_OPEN``, ``trading`` ``BUY_AND_SELL`` and
+        ``close_time`` (when known) still in the future. ``state`` alone is not
+        enough: an outcome can still report ``STATE_OPEN`` after it closes.
+        """
+        seconds_left = self.seconds_left
+        return (
+            self.state == EventOutcomeState.STATE_OPEN
+            and self.trading == EventTradingMode.BUY_AND_SELL
+            and (seconds_left is None or seconds_left > 0)
+        )
+
+    @property
+    def winner(self) -> Optional[EventContract]:
+        """The contract that paid out once the outcome settled YES or NO.
+
+        ``None`` before settlement and for any other settlement
+        (``SETTLED_OUTCOME_OTHER``, ``UNKNOWN``).
+        """
+        if self.settled_outcome == EventSettledOutcome.SETTLED_OUTCOME_YES:
+            return self.yes
+        if self.settled_outcome == EventSettledOutcome.SETTLED_OUTCOME_NO:
+            return self.no
+        return None
+
+    def won(self, contract: Union[EventContract, str]) -> Optional[bool]:
+        """Whether ``contract`` (or a contract symbol) paid out.
+
+        ``None`` while :attr:`winner` is unknown (not settled yet, or settled
+        some other way than YES/NO).
+        """
+        winner = self.winner
+        if winner is None:
+            return None
+        symbol = contract if isinstance(contract, str) else contract.symbol
+        return symbol.strip() == winner.symbol
+
 
 class EventDetails(BaseModel):
-    """Response of :meth:`PublicApiClient.get_event_details`."""
+    """Response of :meth:`PublicApiClient.get_event_details`.
+
+    ``series`` (the series ticker derived from ``event_symbol``) and
+    ``outcome`` (the only outcome of a single-outcome event) are read-only
+    shortcuts; they are not API fields and are not serialized.
+    """
 
     model_config = {"populate_by_name": True}
 
@@ -485,3 +607,20 @@ class EventDetails(BaseModel):
         description="Unfiltered number of outcomes, even when `outcomes` is cut short.",
     )
     outcomes: List[EventOutcome] = Field(default_factory=list)
+
+    @property
+    def series(self) -> Optional[str]:
+        """Series ticker of the event, e.g. ``"KXBALANCESHEET"``.
+
+        Derived from ``event_symbol``. ``None`` if ``event_symbol`` is not of
+        the form ``EXCHANGE.SERIES-SUFFIX``.
+        """
+        return _series_of(self.event_symbol)
+
+    @property
+    def outcome(self) -> Optional[EventOutcome]:
+        """The only outcome of a single-outcome event, e.g. a 15-minute
+        "Up or Down" window. ``None`` when ``outcomes`` does not hold exactly
+        one outcome; use ``outcomes`` for multi-outcome events.
+        """
+        return self.outcomes[0] if len(self.outcomes) == 1 else None

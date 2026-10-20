@@ -242,7 +242,7 @@ class TestExports:
         assert name in public_api_sdk.models.__all__
 
     def test_version_bumped(self) -> None:
-        assert public_api_sdk.__version__ == "0.1.26"
+        assert public_api_sdk.__version__ == "0.1.27"
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +304,16 @@ class TestEventSummaryRequest:
         with pytest.raises(PydanticValidationError):
             EventSummaryRequest(sorting_mode="ALPHABETICAL")
 
-    def test_filters_require_both_lists(self) -> None:
+    def test_filters_require_frequencies(self) -> None:
         with pytest.raises(PydanticValidationError):
             EventSummaryFilters(event_symbols=[_EVENT])  # type: ignore[call-arg]
-        with pytest.raises(PydanticValidationError):
-            EventSummaryFilters(frequencies=[EventFrequency.ALL])  # type: ignore[call-arg]
+
+    def test_filters_event_symbols_default_to_all(self) -> None:
+        # the API requires both lists, so the empty default is still sent
+        body = EventSummaryFilters(
+            frequencies=[EventFrequency.FIFTEEN_MINUTES]
+        ).model_dump(by_alias=True, exclude_none=True)
+        assert body == {"eventSymbols": [], "frequencies": ["FIFTEEN_MINUTES"]}
 
     def test_filters_reject_unknown_frequency(self) -> None:
         with pytest.raises(PydanticValidationError, match="client-side fallback"):
@@ -492,6 +497,70 @@ class TestResponseModels:
 
 
 # ---------------------------------------------------------------------------
+# Derived series ticker
+# ---------------------------------------------------------------------------
+
+_SERIES_CASES = [
+    # 15-minute recurring market
+    ("KALSHI.KXBTC15M-26OCT161345", "KXBTC15M"),
+    (_EVENT, "KXBALANCESHEET"),
+    # grouping id and contract symbols extend the event symbol
+    ("KALSHI.KXBALANCESHEET-EO26-EVENT", "KXBALANCESHEET"),
+    (_YES, "KXBALANCESHEET"),
+    ("KALSHI.KXBALANCESHEET-EO26-6.6.Y-EVENTCONTRACT", "KXBALANCESHEET"),
+    # outcome ids, as the API returns them, have no exchange prefix
+    ("KXBTC15M-26OCT161345-45", None),
+    # exchanges the SDK does not know yet still parse
+    ("NEWEXCHANGE.KXBTC15M-26OCT161345", "KXBTC15M"),
+    # no exchange prefix
+    ("KXBTC15M-26OCT161345", None),
+    # no "-" suffix
+    ("KALSHI.KXBTC15M", None),
+    ("KALSHI.NOPE", None),
+    # empty parts
+    ("KALSHI.KXBTC15M-", None),
+    ("KALSHI.-26OCT161345", None),
+    (".KXBTC15M-26OCT161345", None),
+    ("", None),
+    ("   ", None),
+    # surrounding whitespace is not part of a symbol
+    (" KALSHI.KXBTC15M-26OCT161345", None),
+]
+
+
+class TestSeries:
+    @pytest.mark.parametrize("symbol, expected", _SERIES_CASES)
+    def test_summary_series(self, symbol: str, expected: Optional[str]) -> None:
+        assert EventSummary(event_symbol=symbol).series == expected
+
+    @pytest.mark.parametrize("symbol, expected", _SERIES_CASES)
+    def test_details_series(self, symbol: str, expected: Optional[str]) -> None:
+        assert EventDetails(event_symbol=symbol).series == expected
+
+    def test_summary_page_events_have_series(self) -> None:
+        page = EventSummaryPage(
+            **_summary_payload(_EVENT, "KALSHI.KXBTC15M-26OCT161345")
+        )
+        assert [event.series for event in page.content] == [
+            "KXBALANCESHEET",
+            "KXBTC15M",
+        ]
+
+    def test_series_is_not_serialized(self) -> None:
+        summary = EventSummaryPage(**_summary_payload(_EVENT)).content[0]
+        details = EventDetails(**_details_payload())
+        for model in (summary, details):
+            assert "series" not in model.model_dump()
+            assert "series" not in model.model_dump(by_alias=True, mode="json")
+            assert type(model)(**model.model_dump(by_alias=True)) == model
+
+    def test_series_is_read_only(self) -> None:
+        details = EventDetails(**_details_payload())
+        with pytest.raises(AttributeError):
+            details.series = "OTHER"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
 # Sync client
 # ---------------------------------------------------------------------------
 
@@ -666,6 +735,7 @@ class TestAsyncEventContractDiscovery:
         client.auth_manager.refresh_token_if_needed.assert_awaited_once()
         assert page.next_token == "tok-2"
         assert page.content[0].event_symbol == _EVENT
+        assert page.content[0].series == "KXBALANCESHEET"
 
     @pytest.mark.asyncio
     async def test_get_summary_default_request(self) -> None:
@@ -686,6 +756,7 @@ class TestAsyncEventContractDiscovery:
         )
         client.auth_manager.refresh_token_if_needed.assert_awaited_once()
         assert details.outcomes[0].contracts[0].symbol == _YES
+        assert details.series == "KXBALANCESHEET"
 
     @pytest.mark.asyncio
     async def test_get_details_empty_symbol(self) -> None:

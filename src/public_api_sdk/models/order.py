@@ -18,6 +18,25 @@ from pydantic import (
 from .instrument_type import InstrumentType
 
 
+def _serialize_order_quantity(
+    value: Optional[Decimal], instrument_type: InstrumentType
+) -> Optional[str]:
+    """Order quantity as sent to the API.
+
+    Event contracts accept at most 2 decimal places (the API rejects e.g.
+    ``1.00000`` with "numeric value out of bounds"); everything else is sent
+    with 5, for fractional shares.
+    """
+    if value is None:
+        return None
+    step = (
+        Decimal("0.01")
+        if instrument_type == InstrumentType.EVENTCONTRACT
+        else Decimal("0.00001")
+    )
+    return str(value.quantize(step, rounding=ROUND_HALF_UP))
+
+
 class OrderValidationMixin:
     """Mixin class for shared validations between OrderRequest and PreflightRequest."""
 
@@ -302,11 +321,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
 
     @field_serializer("quantity")
     def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
+        return _serialize_order_quantity(value, self.instrument.type)
 
     @field_serializer("amount", "limit_price", "stop_price")
     def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
@@ -796,11 +811,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
 
     @field_serializer("quantity")
     def serialize_quantity(self, value: Optional[Decimal]) -> Optional[str]:
-        return (
-            str(value.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
-            if value is not None
-            else None
-        )
+        return _serialize_order_quantity(value, self.instrument.type)
 
     @field_serializer("amount", "limit_price", "stop_price")
     def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:

@@ -1,7 +1,8 @@
+import time
 import warnings
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from .api_client import ApiClient
 from .auth_config import AuthConfig
@@ -20,7 +21,11 @@ from .models import (
     EventContractBarPeriod,
     EventContractChartsResponse,
     EventCategoriesResponse,
+    EventContract,
     EventDetails,
+    EventFrequency,
+    EventOutcome,
+    EventSummary,
     EventSummaryPage,
     EventSummaryRequest,
     GreeksResponse,
@@ -58,6 +63,19 @@ from .models import (
     UnrealizedLotsDetailResponse,
     UnrealizedLotsSummaryResponse,
 )
+from .event_contract_helpers import (
+    DEFAULT_EVENT_POLL_INTERVAL,
+    DEFAULT_SETTLEMENT_POLL_INTERVAL,
+    _build_current_event_request,
+    _build_event_contract_buy_order,
+    _build_event_contract_buy_preflight,
+    _is_settled,
+    _normalize_series,
+    _pick_current_event,
+    _settlement_outcome,
+    _utcnow,
+)
+from .models.new_order import WaitTimeoutError
 from .order_subscription_manager import OrderSubscriptionManager
 from .price_stream import PriceStream
 from .short_order import (
@@ -647,6 +665,134 @@ class PublicApiClient:
         )
         return EventDetails(**response)
 
+    def get_current_event(
+        self,
+        series: str,
+        frequency: EventFrequency = EventFrequency.FIFTEEN_MINUTES,
+        *,
+        category: Optional[str] = None,
+        subcategory: Optional[str] = None,
+    ) -> Optional[EventSummary]:
+        """Find the open event of a recurring series that closes soonest.
+
+        For a 15-minute series such as ``"KXBTC15M"`` this is the window
+        trading right now. Pages through the open events of ``frequency``
+        (optionally within ``category``/``subcategory``) and keeps those whose
+        ``series`` matches. Events whose resolution time has passed are
+        skipped: the API keeps listing a window as unresolved for a few
+        minutes after it closes.
+
+        Args:
+            series: Series ticker, e.g. ``"KXBTC15M"`` (see ``EventSummary.series``).
+            frequency: How often the series recurs. Defaults to
+                ``FIFTEEN_MINUTES``; pass e.g. ``ONE_HOUR`` for hourly series.
+            category: Optional category to search, e.g. ``"Crypto"``.
+            subcategory: Optional subcategory to search, e.g. ``"BTC"``.
+
+        Returns:
+            The current event, or ``None`` if the series has no open event
+            (e.g. the next window is not listed yet).
+
+        Raises:
+            ValueError: If ``series`` is empty.
+        """
+        series = _normalize_series(series)
+        request = _build_current_event_request(frequency, category, subcategory)
+        events: List[EventSummary] = []
+        while True:
+            page = self.get_event_summary(request)
+            events.extend(page.content)
+            if not page.next_token:
+                break
+            request.next_token = page.next_token
+        return _pick_current_event(events, series, _utcnow())
+
+    def wait_for_current_event(
+        self,
+        series: str,
+        frequency: EventFrequency = EventFrequency.FIFTEEN_MINUTES,
+        *,
+        category: Optional[str] = None,
+        subcategory: Optional[str] = None,
+        timeout: Optional[float] = None,
+        poll_interval: float = DEFAULT_EVENT_POLL_INTERVAL,
+    ) -> EventSummary:
+        """Like ``get_current_event``, but wait until the series has an open event.
+
+        Useful between windows: the next 15-minute window is typically listed
+        a minute or two after the previous one closes.
+
+        Args:
+            series, frequency, category, subcategory: As for ``get_current_event``.
+            timeout: Maximum seconds to wait (``None`` waits indefinitely).
+            poll_interval: Seconds between checks (default 30).
+
+        Returns:
+            The current event.
+
+        Raises:
+            ValueError: If ``series`` is empty.
+            WaitTimeoutError: If no event is open within ``timeout``.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            event = self.get_current_event(
+                series, frequency, category=category, subcategory=subcategory
+            )
+            if event is not None:
+                return event
+            if deadline is not None and time.monotonic() >= deadline:
+                raise WaitTimeoutError(f"No open {series} event within {timeout}s")
+            delay = poll_interval
+            if deadline is not None:
+                delay = min(delay, max(deadline - time.monotonic(), 0))
+            time.sleep(delay)
+
+    def wait_for_settlement(
+        self,
+        event_symbol: str,
+        outcome_id: Optional[str] = None,
+        *,
+        timeout: Optional[float] = None,
+        poll_interval: float = DEFAULT_SETTLEMENT_POLL_INTERVAL,
+    ) -> EventOutcome:
+        """Wait until an outcome of an event has settled.
+
+        A 15-minute window settles a few minutes after it closes. Check the
+        result with ``outcome.winner`` or ``outcome.won(contract)``.
+
+        Args:
+            event_symbol: The event, e.g. ``"KALSHI.KXBTC15M-26OCT201200"``.
+            outcome_id: The outcome to watch. May be omitted for an event with
+                a single outcome (such as a 15-minute "Up or Down" window).
+            timeout: Maximum seconds to wait (``None`` waits indefinitely).
+            poll_interval: Seconds between checks (default 20).
+
+        Returns:
+            The settled outcome; ``settled_outcome`` says how it settled.
+
+        Raises:
+            ValueError: If ``outcome_id`` is omitted for a multi-outcome event,
+                or does not match an outcome of the event.
+            WaitTimeoutError: If the outcome has not settled within ``timeout``.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            outcome = _settlement_outcome(
+                self.get_event_details(event_symbol), outcome_id
+            )
+            if _is_settled(outcome):
+                return outcome
+            if deadline is not None and time.monotonic() >= deadline:
+                raise WaitTimeoutError(
+                    f"{outcome.outcome_id} of {event_symbol} did not settle "
+                    f"within {timeout}s (state {outcome.state})"
+                )
+            delay = poll_interval
+            if deadline is not None:
+                delay = min(delay, max(deadline - time.monotonic(), 0))
+            time.sleep(delay)
+
     def get_option_greeks(
         self,
         osi_symbols: List[str],
@@ -1178,6 +1324,57 @@ class PublicApiClient:
             stop_price=stop_price,
             equity_market_session=equity_market_session,
             order_id=order_id,
+        )
+        return self.place_order(request, account_id)
+
+    def preflight_buy_event_contract(
+        self,
+        contract: Union[EventContract, str],
+        quantity: Union[Decimal, int] = 1,
+        *,
+        limit_price: Optional[Union[Decimal, float, str]] = None,
+        account_id: Optional[str] = None,
+    ) -> PreflightResponse:
+        """Price a buy of an event contract without placing it.
+
+        Same arguments as ``buy_event_contract``. ``estimated_cost`` includes
+        the commission and exchange fee.
+        """
+        request = _build_event_contract_buy_preflight(contract, quantity, limit_price)
+        return self.perform_preflight_calculation(request, account_id)
+
+    def buy_event_contract(
+        self,
+        contract: Union[EventContract, str],
+        quantity: Union[Decimal, int] = 1,
+        *,
+        limit_price: Optional[Union[Decimal, float, str]] = None,
+        order_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+    ) -> NewOrder:
+        """Buy an event contract (a YES or NO side) with a DAY limit order.
+
+        Args:
+            contract: The contract to buy, e.g. ``outcome.yes`` from
+                ``get_event_details``, or its symbol
+                (e.g. ``"KALSHI.KXBTC15M-26OCT201200-00.Y"``).
+            quantity: Number of contracts (default 1).
+            limit_price: Most to pay per contract, in whole dollars-and-cents
+                between 0.01 and 0.99. Defaults to the contract's ask rounded
+                up to a whole cent; required when ``contract`` is a symbol.
+            order_id: Idempotency key; a UUIDv4 is generated when omitted.
+            account_id: Account ID (optional if ``default_account_number`` is set).
+
+        Returns:
+            NewOrder for tracking the order (``wait_for_fill``, ``cancel``, ...).
+
+        Raises:
+            ValueError: If no price can be determined, ``limit_price`` is not
+                in whole cents or not between 0.01 and 0.99, or ``quantity``
+                is not positive.
+        """
+        request = _build_event_contract_buy_order(
+            contract, quantity, limit_price, order_id
         )
         return self.place_order(request, account_id)
 
