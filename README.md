@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.26-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.27-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -595,6 +595,8 @@ for chart in charts.charts:
 Discover prediction-market events: list the categories, page through event summaries, then fetch one event's outcomes and YES/NO contracts with current pricing. None of these calls take an account ID.
 
 ```python
+from collections import defaultdict
+
 from public_api_sdk import (
     EventFrequency,
     EventSortingMode,
@@ -619,7 +621,19 @@ while page.next_token:
     request.next_token = page.next_token
     page = client.get_event_summary(request)
 
-# Filter by event symbol / frequency (the API requires both lists when filters are sent)
+# Group recurring events (e.g. 15-minute windows) by series ticker
+by_series = defaultdict(list)
+for event in page.content:
+    # "KALSHI.KXBTC15M-26OCT161345" → "KXBTC15M"
+    by_series[event.series].append(event.event_symbol)
+
+# Filter by frequency (event_symbols defaults to [] = every event) ...
+page = client.get_event_summary(
+    EventSummaryRequest(
+        filters=EventSummaryFilters(frequencies=[EventFrequency.FIFTEEN_MINUTES])
+    )
+)
+# ... or by event symbol
 page = client.get_event_summary(
     EventSummaryRequest(
         filters=EventSummaryFilters(
@@ -638,10 +652,51 @@ for outcome in details.outcomes:
         print(f"    {contract.predicted_outcome}: bid {contract.bid} ask {contract.ask} p={contract.probability}")
 ```
 
+- `series` on `EventSummary` and `EventDetails` is the series ticker taken from `event_symbol` (`KALSHI.KXBTC15M-26OCT161345` → `KXBTC15M`). The API does not return it; the SDK derives it, and it is `None` when the symbol is not of the form `EXCHANGE.SERIES-SUFFIX`. It is not included in `model_dump()`.
 - Contract prices are in **dollars from 0.00 to 1.00**; `probability` is the YES contract's last price (1 minus it for the NO contract).
 - `get_event_details(..., include_all_outcomes=False)` returns only a short list of up to 8 outcomes; `outcome_count` still reports the full number.
 - An unknown `event_symbol` returns HTTP 400 with error code `7004` (`ValidationError`, check `error.error_code`). An empty `event_symbol` raises `ValueError` before any request is sent.
 - Enum fields in responses (`exchange`, `state`, `settled_outcome`, `trading`, `predicted_outcome`, `frequencies`) fall back to `UNKNOWN` for values this SDK version does not know yet.
+- `EventSummary.symbols` lists related instruments (e.g. `BTC-CRYPTO`, `IBIT`) and is often empty; an event's YES/NO contracts come from `get_event_details`.
+
+#### Trade Recurring Markets (15-Minute Windows)
+
+Helpers for recurring markets such as the 15-minute "Up or Down" windows (`KXBTC15M`, `KXETH15M`, `KXEURUSD15M`, ...): find the window trading now, read its YES/NO prices, buy a side, and wait for the result. They are built on the discovery and order endpoints above and have async counterparts on `AsyncPublicApiClient`.
+
+```python
+from datetime import timedelta
+
+from public_api_sdk import EventFrequency
+
+# 1. The window trading now (None if the next one is not listed yet) ...
+event = client.get_current_event("KXBTC15M", category="Crypto", subcategory="BTC")
+# ... or wait until it is listed (polls every 30 s; timeout=None waits forever)
+event = client.wait_for_current_event("KXBTC15M", timeout=300)
+# Other frequencies: client.get_current_event("KXBTCD", EventFrequency.ONE_HOUR)
+
+# 2. Its single outcome and YES/NO contracts
+outcome = client.get_event_details(event.event_symbol).outcome
+print(outcome.title)                          # "Target Price: $82,438.08"
+print(outcome.close_time, outcome.seconds_left, outcome.is_tradable)
+print(outcome.yes.symbol, outcome.yes.bid, outcome.yes.ask)
+print(outcome.no.symbol, outcome.no.bid, outcome.no.ask)
+
+# 3. Buy a side with a DAY limit order at its ask (rounded up to a whole cent)
+preview = client.preflight_buy_event_contract(outcome.yes, quantity=1)
+print(preview.estimated_cost)                 # includes commission and exchange fee
+order = client.buy_event_contract(outcome.yes, quantity=1)
+order = client.buy_event_contract(outcome.yes, quantity=1, limit_price="0.85")
+order.wait_for_fill(timeout=outcome.seconds_left)
+
+# 4. Wait for the result (a 15-minute window settles a few minutes after close)
+result = client.wait_for_settlement(event.event_symbol, timeout=900)
+print(result.settled_outcome, result.winner.symbol, result.won(outcome.yes))
+```
+
+- `get_current_event` returns the open event of the series that closes soonest. It skips windows whose close has passed: the API keeps listing a window as unresolved for a few minutes after it closes. `frequency` defaults to `FIFTEEN_MINUTES`; `category`/`subcategory` only narrow the search. `wait_for_current_event` raises `WaitTimeoutError` when `timeout` passes.
+- `EventDetails.outcome` is the only outcome of a single-outcome event, else `None`. On `EventOutcome`: `yes`/`no` are its contracts, `close_time` comes from `timeline`, `seconds_left` is computed on each access (0 after close), and `is_tradable` requires `STATE_OPEN`, `BUY_AND_SELL` and a close time still ahead — `state` alone still says `STATE_OPEN` after close. After settlement, `winner` is the contract that paid out and `won(contract)` says whether a contract (or symbol) did; both are `None` before a YES/NO settlement. None of these are serialized.
+- `buy_event_contract` takes a contract from `get_event_details` or a contract symbol (then `limit_price` is required). `limit_price` must be whole cents between 0.01 and 0.99; prices can carry tenths of a cent, so the default ask is rounded *up* to stay at or above it. It returns a `NewOrder` (`AsyncNewOrder` for the async client). Fees are about $0.02 per contract, and the API rejects buys priced too close to $1.00 ("Price is too high for any profit").
+- `wait_for_settlement` polls every 20 s and returns the settled `EventOutcome`; pass `outcome_id` for events with several outcomes. It raises `WaitTimeoutError` when `timeout` passes.
 
 ### Options Trading
 
@@ -1760,6 +1815,12 @@ charts = await client.get_event_contract_bars(
 categories = await client.get_event_categories()
 page = await client.get_event_summary(EventSummaryRequest(category="Economics"))
 details = await client.get_event_details(page.content[0].event_symbol)
+
+# Recurring markets (15-minute windows)
+event = await client.wait_for_current_event("KXBTC15M")
+outcome = (await client.get_event_details(event.event_symbol)).outcome
+order = await client.buy_event_contract(outcome.yes, quantity=1)
+result = await client.wait_for_settlement(event.event_symbol)
 
 # Multiple symbols concurrently
 aapl_bars, msft_bars = await asyncio.gather(
