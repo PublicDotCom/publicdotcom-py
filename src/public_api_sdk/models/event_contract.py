@@ -497,6 +497,12 @@ class EventOutcome(BaseModel):
     )
     trading: Optional[EventTradingMode] = Field(None)
     contracts: List[EventContract] = Field(default_factory=list)
+    floor_strike: Optional[Decimal] = Field(
+        None,
+        validation_alias=AliasChoices("floor_strike", "floorStrike"),
+        serialization_alias="floorStrike",
+        description="The outcome's floor strike, when it has one.",
+    )
 
     def _contract(self, side: EventContractSide) -> Optional[EventContract]:
         return next((c for c in self.contracts if c.predicted_outcome == side), None)

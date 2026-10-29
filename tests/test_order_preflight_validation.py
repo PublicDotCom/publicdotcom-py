@@ -247,7 +247,7 @@ class TestSharedValidation:
         """Test that limit_price is rejected for MARKET orders."""
         with pytest.raises(
             ValueError,
-            match="`limit_price` can only be set for `LIMIT` or `STOP_LIMIT` orders",
+            match="`limit_price` can only be set for `LIMIT`, `STOP_LIMIT` or `LIMIT_ON_CLOSE` orders",
         ):
             self._create_request(
                 request_class,
@@ -263,7 +263,7 @@ class TestSharedValidation:
         """Test that limit_price is rejected for STOP orders."""
         with pytest.raises(
             ValueError,
-            match="`limit_price` can only be set for `LIMIT` or `STOP_LIMIT` orders",
+            match="`limit_price` can only be set for `LIMIT`, `STOP_LIMIT` or `LIMIT_ON_CLOSE` orders",
         ):
             self._create_request(
                 request_class,
