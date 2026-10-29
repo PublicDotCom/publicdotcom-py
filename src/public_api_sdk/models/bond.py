@@ -12,6 +12,9 @@ class SortDirection(str, Enum):
     ASC = "ASC"
     DESC = "DESC"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class BondStatus(str, Enum):
     """Lifecycle status of a bond."""
@@ -31,6 +34,9 @@ class BondStatus(str, Enum):
     PRE_ISSUANCE = "PRE_ISSUANCE"
     UNKNOWN = "UNKNOWN"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class BondType(str, Enum):
     """Type of fixed income instrument."""
@@ -42,6 +48,9 @@ class BondType(str, Enum):
     MUNICIPAL = "MUNICIPAL"
     TREASURY = "TREASURY"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class TreasurySubtype(str, Enum):
     """Subtype of treasury instruments."""
@@ -52,6 +61,9 @@ class TreasurySubtype(str, Enum):
     STRIPS = "STRIPS"
     TIPS = "TIPS"
     FLOATING = "FLOATING"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class BondRating(str, Enum):
@@ -87,12 +99,18 @@ class BondRating(str, Enum):
     D = "D"
     NR = "NR"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class RatingCategory(str, Enum):
     """S&P rating category."""
 
     INVESTMENT_GRADE = "INVESTMENT_GRADE"
     SPECULATIVE_GRADE = "SPECULATIVE_GRADE"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class SpOutlook(str, Enum):
@@ -105,6 +123,9 @@ class SpOutlook(str, Enum):
     NOT_RATED = "NOT_RATED"
     NOT_MEANINGFUL = "NOT_MEANINGFUL"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class SpCreditwatch(str, Enum):
     """S&P creditwatch status."""
@@ -113,6 +134,9 @@ class SpCreditwatch(str, Enum):
     NEGATIVE = "NEGATIVE"
     DEVELOPING = "DEVELOPING"
     NOT_MEANINGFUL = "NOT_MEANINGFUL"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class CouponFrequency(str, Enum):
@@ -124,6 +148,9 @@ class CouponFrequency(str, Enum):
     QUARTERLY = "QUARTERLY"
     SEMI_ANNUAL = "SEMI_ANNUAL"
     ANNUAL = "ANNUAL"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class BondSearchRequest(BaseModel):

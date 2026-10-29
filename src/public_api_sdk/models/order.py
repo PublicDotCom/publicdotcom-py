@@ -117,6 +117,9 @@ class OrderSide(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class OrderType(str, Enum):
     MARKET = "MARKET"
@@ -126,21 +129,33 @@ class OrderType(str, Enum):
     MARKET_ON_CLOSE = "MARKET_ON_CLOSE"
     LIMIT_ON_CLOSE = "LIMIT_ON_CLOSE"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class TimeInForce(str, Enum):
     DAY = "DAY"
     GTD = "GTD"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class OpenCloseIndicator(str, Enum):
     OPEN = "OPEN"
     CLOSE = "CLOSE"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class EquityMarketSession(str, Enum):
     CORE = "CORE"
     EXTENDED = "EXTENDED"
     TWENTY_FOUR_HOURS = "TWENTY_FOUR_HOURS"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 class OrderExpiration(BaseModel):
     time_in_force: TimeInForce = Field(..., alias="timeInForce")
@@ -530,6 +545,9 @@ class OrderClass(str, Enum):
     BRACKET = "BRACKET"
     OCO = "OCO"
     OTO = "OTO"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 #: Order classes that place a bracket order rather than a standalone one.
@@ -991,10 +1009,16 @@ class OrderStatus(str, Enum):
         )
         return cls.UNKNOWN
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class LegInstrumentType(str, Enum):
     EQUITY = "EQUITY"
     OPTION = "OPTION"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class LegInstrument(BaseModel):

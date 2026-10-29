@@ -218,11 +218,11 @@ class TestAsyncApiClientHandleResponse:
             self.client._handle_response(response)
         assert exc_info.value.status_code == 418
 
-    def test_missing_message_field_uses_default(self) -> None:
+    def test_missing_message_field_falls_back_to_body(self) -> None:
         response = _make_httpx_response(400, data={"code": "INVALID"})
         with pytest.raises(ValidationError) as exc_info:
             self.client._handle_response(response)
-        assert exc_info.value.message == "Unknown error"
+        assert exc_info.value.message == '{"code": "INVALID"}'
 
     def test_dict_message_is_stringified(self) -> None:
         response = _make_httpx_response(400, data={"message": {"nested": "err"}})

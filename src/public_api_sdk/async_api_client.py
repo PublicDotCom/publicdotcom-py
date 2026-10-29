@@ -14,6 +14,7 @@ from .exceptions import (
     RateLimitError,
     ServerError,
     ValidationError,
+    extract_error_message,
 )
 
 _RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -101,9 +102,11 @@ class AsyncApiClient:
         if 200 <= response.status_code < 300:
             return response_data
 
-        error_message = response_data.get("message", "Unknown error")
-        if isinstance(error_message, dict):
-            error_message = str(error_message)
+        # a JSON body that isn't an object (e.g. a list) is kept as raw text
+        if not isinstance(response_data, dict):
+            response_data = {"raw_content": response.text}
+
+        error_message = extract_error_message(response_data)
 
         if response.status_code == 401:
             raise AuthenticationError(

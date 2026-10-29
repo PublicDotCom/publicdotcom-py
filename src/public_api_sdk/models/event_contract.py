@@ -34,6 +34,9 @@ class EventSortingMode(str, Enum):
     EXPIRATION = "EXPIRATION"
     RECENTLY_ADDED = "RECENTLY_ADDED"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class EventFrequency(str, Enum):
     """How often an event recurs.
@@ -56,6 +59,9 @@ class EventFrequency(str, Enum):
     def _missing_(cls, value: object) -> "EventFrequency":
         _warn_unknown(cls.__name__, value)
         return cls.UNKNOWN
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class EventExchange(str, Enum):

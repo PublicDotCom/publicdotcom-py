@@ -382,7 +382,9 @@ class AsyncPublicApiClient:
         response = await self.api_client.get(
             "/userapigateway/trading/instruments",
             params=(
-                instruments_request.model_dump(by_alias=True, exclude_none=True)
+                instruments_request.model_dump(
+                    by_alias=True, exclude_none=True, mode="json"
+                )
                 if instruments_request
                 else None
             ),
@@ -427,7 +429,9 @@ class AsyncPublicApiClient:
         response = await self.api_client.get(
             "/userapigateway/trading/instruments/bonds",
             params=(
-                bond_search_request.model_dump(by_alias=True, exclude_none=True)
+                bond_search_request.model_dump(
+                    by_alias=True, exclude_none=True, mode="json"
+                )
                 if bond_search_request
                 else None
             ),
