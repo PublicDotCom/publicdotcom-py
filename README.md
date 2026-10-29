@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.27-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.28-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -231,6 +231,10 @@ Get a snapshot of account portfolio including positions, equity, buying power, o
 portfolio = client.get_portfolio(account_id="YOUR_ACCOUNT_NUMBER")  # account_id optional if default set
 print(f"Total equity: {portfolio.equity}")
 print(f"Buying power: {portfolio.buying_power}")
+
+# Day-trade buying power equals buying_power when the account is not enabled
+# for it; None if the API omits it
+print(f"Day-trade buying power: {portfolio.buying_power.day_trade_buying_power}")
 
 # Cash, total account value, and withdrawal availability (all optional/nullable)
 print(f"Cash: {portfolio.cash}, total value: {portfolio.total_account_value}")
@@ -647,7 +651,7 @@ page = client.get_event_summary(
 details = client.get_event_details("KALSHI.KXBALANCESHEET-EO26")
 print(f"{details.title} [{details.exchange}] — {details.outcome_count} outcomes")
 for outcome in details.outcomes:
-    print(f"  {outcome.title}: {outcome.state} / {outcome.trading}")
+    print(f"  {outcome.title}: {outcome.state} / {outcome.trading} (floor strike {outcome.floor_strike})")
     for contract in outcome.contracts:
         print(f"    {contract.predicted_outcome}: bid {contract.bid} ask {contract.ask} p={contract.probability}")
 ```
@@ -1195,6 +1199,20 @@ print(f"Order placed with ID: {new_order.order_id}")
 
 `place_order` returns a `NewOrder` handle you can use to wait for fills, subscribe to status changes, or cancel — see [Tracking Orders with NewOrder](#tracking-orders-with-neworder) below.
 
+> **Order types.** `OrderType` is `MARKET`, `LIMIT`, `STOP`, `STOP_LIMIT`, `MARKET_ON_CLOSE` or `LIMIT_ON_CLOSE`. Set `limit_price` for `LIMIT`, `STOP_LIMIT` and `LIMIT_ON_CLOSE`, and `stop_price` for `STOP` and `STOP_LIMIT`. The on-close types execute at the closing auction:
+>
+> ```python
+> moc_request = OrderRequest(
+>     order_id=str(uuid.uuid4()),
+>     instrument=OrderInstrument(symbol="AAPL", type=InstrumentType.EQUITY),
+>     order_side=OrderSide.BUY,
+>     order_type=OrderType.LIMIT_ON_CLOSE,   # or OrderType.MARKET_ON_CLOSE (no limit_price)
+>     expiration=OrderExpirationRequest(time_in_force=TimeInForce.DAY),
+>     quantity=10,
+>     limit_price=Decimal("227.50"),
+> )
+> ```
+
 > **Margin vs. cash buying power.** `OrderRequest` accepts an optional `use_margin: bool`. When omitted (or `True`), the order is evaluated against margin buying power where the account allows it. Pass `use_margin=False` to force the order to be evaluated using **cash-only** buying power instead. The same flag is accepted on `MultilegOrderRequest`.
 
 > **Tax-lot selection.** `OrderRequest` (and `PreflightRequest`) accept an optional `tax_lot_matching_instructions: list[GatewayTaxLotMatchingInstruction]` to pick which lots to close. Instructions are only valid for **SELL equity** orders with `open_close_indicator=CLOSE`, on `MARKET` or good-for-day `LIMIT` orders; at most 8 per request, all for the order's symbol, with quantities summing to the order quantity, and only when the tax-lot data was updated today.
@@ -1466,7 +1484,8 @@ order = client.get_order(
 print(f"Order status: {order.status} in session {order.equity_market_session}")
 print(f"Filled at {order.filled_at}, last modified {order.last_modified}")
 for trade in order.trades or []:
-    print(f"  {trade.side} {trade.quantity} @ {trade.price} ({trade.timestamp})")
+    # market_identification_code is the execution venue's MIC (e.g. "XNAS"), when reported
+    print(f"  {trade.side} {trade.quantity} @ {trade.price} ({trade.timestamp}) {trade.market_identification_code or ''}")
 ```
 
 > **Deprecated:** `get_order_v2()` — the API removed the dedicated v2 get-order endpoint and `get_order` now returns the same `OrderV2` view. `get_order_v2()` still works as an alias of `get_order()` but emits a `DeprecationWarning` and will be removed in a future release.

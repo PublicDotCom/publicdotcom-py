@@ -14,7 +14,8 @@ concurrency:
 jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # ubuntu-latest (26.04) has no Python 3.9 build; 24.04 keeps the 3.9 floor testable
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

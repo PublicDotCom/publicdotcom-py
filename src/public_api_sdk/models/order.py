@@ -66,9 +66,14 @@ class OrderValidationMixin:
     ) -> Optional[Decimal]:
         if v is not None and info.data.get("order_type"):
             order_type = info.data["order_type"]
-            if order_type not in [OrderType.LIMIT, OrderType.STOP_LIMIT]:
+            if order_type not in [
+                OrderType.LIMIT,
+                OrderType.STOP_LIMIT,
+                OrderType.LIMIT_ON_CLOSE,
+            ]:
                 raise ValueError(
-                    f"`limit_price` can only be set for `LIMIT` or `STOP_LIMIT` orders, "
+                    "`limit_price` can only be set for `LIMIT`, `STOP_LIMIT` or "
+                    f"`LIMIT_ON_CLOSE` orders, "
                     f"not {order_type.value}"
                 )
         return v
@@ -112,28 +117,45 @@ class OrderSide(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class OrderType(str, Enum):
     MARKET = "MARKET"
     LIMIT = "LIMIT"
     STOP = "STOP"
     STOP_LIMIT = "STOP_LIMIT"
+    MARKET_ON_CLOSE = "MARKET_ON_CLOSE"
+    LIMIT_ON_CLOSE = "LIMIT_ON_CLOSE"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class TimeInForce(str, Enum):
     DAY = "DAY"
     GTD = "GTD"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class OpenCloseIndicator(str, Enum):
     OPEN = "OPEN"
     CLOSE = "CLOSE"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class EquityMarketSession(str, Enum):
     CORE = "CORE"
     EXTENDED = "EXTENDED"
     TWENTY_FOUR_HOURS = "TWENTY_FOUR_HOURS"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 class OrderExpiration(BaseModel):
     time_in_force: TimeInForce = Field(..., alias="timeInForce")
@@ -263,7 +285,7 @@ class PreflightRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("limit_price", "limitPrice"),
         serialization_alias="limitPrice",
-        description="The limit price. Used when `orderType = LIMIT` or `orderType = STOP_LIMIT`",
+        description="The limit price. Used when `orderType = LIMIT`, `orderType = STOP_LIMIT` or `orderType = LIMIT_ON_CLOSE`",
     )
     stop_price: Optional[Decimal] = Field(
         None,
@@ -524,6 +546,9 @@ class OrderClass(str, Enum):
     OCO = "OCO"
     OTO = "OTO"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 #: Order classes that place a bracket order rather than a standalone one.
 BRACKET_ORDER_CLASSES = frozenset({OrderClass.BRACKET, OrderClass.OCO, OrderClass.OTO})
@@ -561,6 +586,10 @@ class StopLoss(BaseModel):
 
     Placed as a ``STOP`` order when only ``stop_price`` is present, or as a
     ``STOP_LIMIT`` order when ``limit_price`` is also present.
+
+    The API documents ``stopPrice`` as optional for *trailing* stop-losses, but
+    the spec does not yet define the trailing fields, so ``stop_price`` stays
+    required here until it does.
     """
 
     model_config = {"populate_by_name": True}
@@ -658,7 +687,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         None,
         validation_alias=AliasChoices("limit_price", "limitPrice"),
         serialization_alias="limitPrice",
-        description="The limit price. Used when `orderType = LIMIT` or `orderType = STOP_LIMIT`",
+        description="The limit price. Used when `orderType = LIMIT`, `orderType = STOP_LIMIT` or `orderType = LIMIT_ON_CLOSE`",
     )
     stop_price: Optional[Decimal] = Field(
         None,
@@ -911,7 +940,10 @@ class CancelAndReplaceRequest(BaseModel):
         None,
         validation_alias=AliasChoices("limit_price", "limitPrice"),
         serialization_alias="limitPrice",
-        description="The limit price. Required when orderType is LIMIT or STOP_LIMIT.",
+        description=(
+            "The limit price. Required when orderType is LIMIT, STOP_LIMIT or "
+            "LIMIT_ON_CLOSE."
+        ),
     )
     stop_price: Optional[Decimal] = Field(
         None,
@@ -977,10 +1009,16 @@ class OrderStatus(str, Enum):
         )
         return cls.UNKNOWN
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 class LegInstrumentType(str, Enum):
     EQUITY = "EQUITY"
     OPTION = "OPTION"
+
+    def __str__(self) -> str:
+        return str(self.value)
 
 
 class LegInstrument(BaseModel):
@@ -1117,6 +1155,14 @@ class Trade(BaseModel):
         serialization_alias="tradeId",
     )
     timestamp: Optional[datetime] = Field(None, description="Execution time")
+    market_identification_code: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices(
+            "market_identification_code", "marketIdentificationCode"
+        ),
+        serialization_alias="marketIdentificationCode",
+        description="ISO 10383 Market Identifier Code (MIC) of the execution venue",
+    )
 
 
 class OrderV2(Order):

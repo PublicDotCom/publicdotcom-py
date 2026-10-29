@@ -24,6 +24,9 @@ class TradingPermission(str, Enum):
     LIQUIDATION_ONLY = "LIQUIDATION_ONLY"
     DISABLED = "DISABLED"
 
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 # Backwards-compatible alias.
 Trading = TradingPermission

@@ -29,6 +29,15 @@ class BuyingPower(BaseModel):
         alias="optionsBuyingPower",
         description="Buying power available for trading options.",
     )
+    day_trade_buying_power: Optional[Decimal] = Field(
+        None,
+        alias="dayTradeBuyingPower",
+        description=(
+            "Buying power available for day trading. Equal to `buying_power` when "
+            "the account is not enabled for day trade buying power. Optional in "
+            "the SDK (the spec marks it required) so responses without it still parse."
+        ),
+    )
 
 
 class AvailableToWithdraw(BaseModel):

@@ -1,4 +1,34 @@
+import json
 from typing import Any, Dict, Optional
+
+_ERROR_MESSAGE_KEYS = ("message", "error", "detail", "errors")
+_MAX_ERROR_MESSAGE_LENGTH = 500
+
+
+def _truncate(text: str) -> str:
+    if len(text) <= _MAX_ERROR_MESSAGE_LENGTH:
+        return text
+    return text[:_MAX_ERROR_MESSAGE_LENGTH] + "…"
+
+
+def extract_error_message(response_data: Dict[str, Any]) -> str:
+    """Pick a human-readable message out of a parsed error response body.
+
+    Tries the common error keys in order (``message``, ``error``, ``detail``,
+    ``errors``), then the raw body of a non-JSON response, then the JSON body
+    itself, so the gateway's actual error text ends up in ``str(exception)``.
+    Long values are truncated. Returns ``"Unknown error"`` for an empty body.
+    """
+    for key in _ERROR_MESSAGE_KEYS:
+        value = response_data.get(key)
+        if value is not None and value != "" and value != [] and value != {}:
+            return _truncate(value if isinstance(value, str) else str(value))
+    raw_content = response_data.get("raw_content")
+    if isinstance(raw_content, str) and raw_content.strip():
+        return _truncate(raw_content.strip())
+    if response_data:
+        return _truncate(json.dumps(response_data, default=str))
+    return "Unknown error"
 
 
 class APIError(Exception):

@@ -11,3 +11,6 @@ class InstrumentType(str, Enum):
     MULTI_LEG_INSTRUMENT = "MULTI_LEG_INSTRUMENT"
     OPTION = "OPTION"
     TREASURY = "TREASURY"
+
+    def __str__(self) -> str:
+        return str(self.value)
