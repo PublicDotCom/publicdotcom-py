@@ -1,12 +1,12 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.1.28-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.2.0-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
 # Public API Python SDK
 
-A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, and account management.
+A Python SDK for interacting with the Public Trading API, providing a simple and intuitive interface for trading operations, market data retrieval, account management, and real-time order and trade updates over a WebSocket.
 
 ## Table of Contents
 
@@ -20,10 +20,12 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
   - [Options Trading](#options-trading) — expirations, chains, greeks
   - [Order Management](#order-management) — preflight, spreads, brackets, placing, tracking & searching orders
   - [Price Subscription](#price-subscription)
+  - [Order & Trade Stream (WebSocket)](#order--trade-stream-websocket) — push updates for orders and fills, no polling
 - [Async Client](#async-client)
   - [Configuration](#configuration) & [Context Manager](#context-manager)
   - [Market Data](#market-data-1) & [Order Placement and Tracking](#order-placement-and-tracking)
   - [Async Price Subscriptions](#async-price-subscriptions)
+  - [Async Order & Trade Stream](#async-order--trade-stream)
   - [Error Handling (Async)](#error-handling-async)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -36,6 +38,8 @@ A Python SDK for interacting with the Public Trading API, providing a simple and
 ```bash
 $ pip install publicdotcom-py
 ```
+
+Requires Python 3.9 or later. The dependencies (`requests`, `httpx`, `pydantic`, `websockets`) are installed for you. From 0.2.0 on, [`websockets`](https://websockets.readthedocs.io/) 15.0 or later is required for the [order & trade stream](#order--trade-stream-websocket).
 
 ### Run locally
 
@@ -120,7 +124,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The `async with` block automatically cancels any active price subscriptions and closes the HTTP connection when the block exits — no `try/finally` or manual `close()` call required.
+The `async with` block automatically cancels any active price subscriptions, closes any open order & trade streams and closes the HTTP connection when the block exits — no `try/finally` or manual `close()` call required.
 
 ## API Reference
 
@@ -1460,6 +1464,8 @@ subscription_id = new_order.subscribe_updates(on_order_update)
 new_order.unsubscribe()
 ```
 
+`subscribe_updates` polls the REST API for one order. To get every change of every order in an account pushed to you, including orders placed in the app, use the [order & trade stream](#order--trade-stream-websocket).
+
 ##### Checking status and cancelling
 
 ```python
@@ -1689,7 +1695,137 @@ subscription_id = client.price_stream.subscribe(
 )
 ```
 
+### Order & Trade Stream (WebSocket)
 
+`client.stream()` opens one WebSocket that pushes your orders and trades as they change, instead of polling. It uses the same access token as the REST calls.
+
+- **`order` channel** — an `OrderUpdateEvent` every time an order changes (accepted, partially filled, filled, cancelled, rejected, expired, replaced). `event.order` is a `StreamOrder`: the **complete** order after the change, with a `version` that increases with every change.
+- **`trade` channel** — a `TradeEvent` for every execution (fill). `event.trade` is a `StreamTrade` with status `NEW`, sent again with the same `trade_id` and status `CANCELLED` if the trade is taken back.
+
+The stream runs on a background thread, sends a heartbeat every 60 seconds, and reconnects with backoff whenever the connection closes (the server closes connections after 10 idle minutes and after 2 hours at the latest).
+
+```python
+from public_api_sdk import OrderStatus, StreamChannel
+
+def on_connect(event):
+    # Nothing is replayed after a disconnect, so (re)load the current state
+    # here: it runs on the first connect and after every reconnect, before
+    # that connection's events are delivered.
+    open_orders = client.get_portfolio().orders
+    print("connected" if not event.is_reconnect else "reconnected", len(open_orders))
+
+def on_order(event):
+    order = event.order
+    print(order.account_number, order.order_id, order.status, order.filled_quantity)
+    if order.status == OrderStatus.FILLED:
+        print(f"filled at {order.average_price}")
+
+def on_trade(event):
+    trade = event.trade
+    print(trade.trade_id, trade.status, trade.side, trade.quantity, "@", trade.price)
+
+stream = client.stream(
+    on_order=on_order,
+    on_trade=on_trade,
+    on_connect=on_connect,
+    on_disconnect=lambda e: print("disconnected:", e.reason, "retry in", e.reconnect_in),
+    on_error=lambda err: print("stream stopped:", err),
+)
+
+# ... later
+stream.close()   # also done by client.close()
+```
+
+Options:
+
+```python
+client.stream(
+    accounts="*",                      # default: the default account, or "*" (all accounts) without one
+    channels=[StreamChannel.ORDER],    # default: order and trade
+    ping_interval=60.0,                # seconds between heartbeats
+    max_reconnect_attempts=None,       # None retries forever; otherwise give up with StreamError
+    deduplicate=True,                  # drop stale order versions and repeated trade frames
+    start=True,                        # False: call stream.start() yourself
+)
+
+stream.wait()          # block until the stream stops; raises the error that stopped it
+with client.stream(on_order=on_order) as stream:
+    ...                # closed on exit
+```
+
+Things to know:
+
+- **At-most-once delivery, no replay.** Events sent while you are disconnected are lost. Load state from the REST API in `on_connect` (`get_portfolio()` for open orders, `search_orders()` for recent orders and their trades).
+- **Repeats are dropped for you.** After a restart on the server, old events can be sent again; with `deduplicate=True` (the default) an order event is delivered only if its `version` is newer than the last one delivered, and a trade event only if its status is new for that `trade_id`.
+- **Callbacks run on the stream's thread.** A slow callback delays the next event but loses nothing. An exception in a callback is logged and does not stop the stream.
+- **Fatal handshake errors stop the stream.** `400` (bad account number or channel) and `403` (account not yours) raise `StreamHandshakeError` through `on_error` / `stream.wait()`. A `401` is retried once with a fresh token. `429` (more than 5 connections for an account) and `5xx` are retried with backoff.
+- **Accounts are fixed per connection.** `"*"` means the accounts you own when connecting; open a new stream to include an account opened later.
+- **Unknown values are kept.** New enum values (for example an order type the SDK does not know yet) come through as plain strings instead of failing, and new event types are ignored.
+- The streamed order is not the REST `Order`: it adds `version`, `account_number`, `effective`, `editable`, `cancellable`, `trailing_stop` and `session` (`CORE` / `EXTENDED` / `TWENTY_FOUR_HOURS`), and has no `trades`. Prices and quantities are `Decimal`.
+- **Connection limits.** An account can have 5 open connections at a time, across all your programs. A stream holds one until `stream.close()` or `client.close()`.
+
+#### Stream Events
+
+| Event | Delivered to | Fields |
+|-------|--------------|--------|
+| `OrderUpdateEvent` | `on_order` | `order` (`StreamOrder`), `timestamp` (when the frame was sent), `channel`, `type` |
+| `TradeEvent` | `on_trade` | `trade` (`StreamTrade`), `timestamp` (when the frame was sent), `channel`, `type` |
+| `StreamConnectedEvent` | `on_connect` | `account_ids`, `channels`, `is_reconnect`, `connected_at` |
+| `StreamDisconnectedEvent` | `on_disconnect` | `close_code`, `reason`, `status_code` (of a rejected handshake), `will_reconnect`, `reconnect_in` (seconds) |
+
+A `StreamDisconnectedEvent` is routine: the server closes connections on a schedule and the stream reconnects. Only `will_reconnect=False` means the stream has stopped.
+
+**`StreamOrder`** (`event.order`)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `order_id`, `account_number` | `str` | |
+| `version` | `int` | Increases with every change of the order |
+| `instrument` | `StreamInstrument` | `symbol` (plain, e.g. `BTC`) and `type` |
+| `type`, `side`, `status` | `OrderType`, `OrderSide`, `OrderStatus` | |
+| `quantity` / `notional_value` | `Decimal` | One of the two, depending on how the order was placed |
+| `filled_quantity`, `average_price` | `Decimal` | |
+| `limit_price`, `stop_price` | `Decimal` | |
+| `trailing_stop`, `high_watermark` | `StreamTrailingStop`, `Decimal` | Trailing stop orders: `type` (`AMOUNT` / `PERCENTAGE`), `value`, `limit_offset` |
+| `expiration` | `StreamOrderExpiration` | `time_in_force`, `expiration_time` (for `GTD`) |
+| `session` | `EquityMarketSession` | Equity orders |
+| `open_close_indicator` | `OpenCloseIndicator` | Option orders |
+| `legs` | `List[StreamOrderLeg]` | Multi-leg orders: `instrument`, `side`, `open_close_indicator`, `ratio_quantity` |
+| `bracket_id` | `str` | Bracket orders: the `order_id` of the entry order |
+| `reject_reason` | `str` | |
+| `effective` | `bool` | `False` while the order waits for another one to fill, like a bracket's exits before the entry fills |
+| `editable`, `cancellable` | `bool` | |
+| `created_at`, `last_modified`, `edited_at` | `datetime` | |
+| `is_final` | `bool` (property) | `True` once the order is filled, cancelled, rejected or expired |
+
+Everything except `order_id`, `account_number`, `version`, `instrument`, `type`, `side` and `status` can be `None`.
+
+**`StreamTrade`** (`event.trade`)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `trade_id`, `account_number` | `str` | |
+| `order_id` | `Optional[str]` | `None` for trades without an order, like allocations |
+| `original_trade_id` | `Optional[str]` | The trade this one corrects, if it is a correction |
+| `status` | `TradeStatus` | `NEW` or `CANCELLED` (the trade did not happen: reverse its effect) |
+| `instrument` | `StreamInstrument` | `symbol` and `type` |
+| `side`, `quantity`, `price` | `OrderSide`, `Decimal`, `Decimal` | `price` is per share or contract |
+| `timestamp` | `datetime` | When the trade happened |
+| `market_identification_code` | `Optional[str]` | ISO 10383 MIC of the venue, if reported |
+
+Trades carry no fees or commissions. An order event and the trade event of the same fill can arrive in either order.
+
+#### The Stream Object
+
+| Member | Description |
+|--------|-------------|
+| `start()` | Start connecting. Only needed with `start=False`; a closed stream cannot be restarted |
+| `close(timeout=10.0)` | Close the connection and stop the thread. Safe to call twice and from a callback |
+| `wait(timeout=None)` | Block until the stream stops. Returns `False` on timeout; raises the `StreamError` that stopped it |
+| `is_running` | `True` from `start()` until the stream stops (including while reconnecting) |
+| `is_connected` | `True` while a connection is open |
+| `error` | The error that stopped the stream, or `None` |
+| `account_ids`, `channels`, `url` | What the stream is subscribed to |
 
 
 ## Async Client
@@ -1910,6 +2046,8 @@ await order.subscribe_updates(on_order_update)
 await order.unsubscribe()
 ```
 
+This polls one order. For pushed updates of every order in an account, see the [async order & trade stream](#async-order--trade-stream).
+
 #### Get and Cancel Orders
 
 ```python
@@ -2036,6 +2174,38 @@ await client.price_stream.unsubscribe(msft_sub)
 # Cancel all at once (also called automatically by the context manager)
 await client.price_stream.unsubscribe_all()
 ```
+
+### Async Order & Trade Stream
+
+`client.stream()` on the async client returns an `AsyncAccountStream` to iterate. The connection runs as a task in your event loop. Besides `OrderUpdateEvent` and `TradeEvent`, the iterator yields a `StreamConnectedEvent` on every connect (the place to load state, since nothing is replayed) and a `StreamDisconnectedEvent` when a connection ends; it reconnects on its own. Events that arrive while you handle one are queued, not lost.
+
+```python
+from public_api_sdk import (
+    OrderUpdateEvent,
+    StreamConnectedEvent,
+    StreamDisconnectedEvent,
+    StreamError,
+    TradeEvent,
+)
+
+async with client.stream() as stream:          # order and trade channels
+    try:
+        async for event in stream:
+            if isinstance(event, StreamConnectedEvent):
+                portfolio = await client.get_portfolio()   # reload state on every (re)connect
+            elif isinstance(event, OrderUpdateEvent):
+                print(event.order.order_id, event.order.status, event.order.version)
+            elif isinstance(event, TradeEvent):
+                print(event.trade.trade_id, event.trade.status, event.trade.price)
+            elif isinstance(event, StreamDisconnectedEvent):
+                print("disconnected:", event.reason)
+    except StreamError as err:
+        print("stream stopped:", err)             # e.g. 403, or max_reconnect_attempts exhausted
+```
+
+It takes the same `accounts`, `channels`, `ping_interval`, `max_reconnect_attempts` and `deduplicate` arguments as the sync stream. Iteration ends after `await stream.close()`; `await client.close()` closes open streams.
+
+The events and their fields are the same as for the sync stream (see [Stream Events](#stream-events)). The stream connects on `async with` or on the first iteration; without `async with`, call `await stream.close()` yourself. It has the same `is_running`, `is_connected` and `error` properties, and a fatal error is raised from the iteration as a `StreamError`.
 
 ### Preflight Calculations (Async)
 
@@ -2175,6 +2345,21 @@ See `example_order_subscription.py` for three ways to track an order after place
 - Synchronous waiting with `wait_for_status()` / `wait_for_fill()`
 - Async callbacks on order updates
 
+### Order & Trade Stream
+
+See `example_account_stream.py` for the WebSocket stream, sync and async:
+- Callbacks for order updates and trades, with REST state loaded on every (re)connect
+- The async iterator with `StreamConnectedEvent` / `StreamDisconnectedEvent`
+- Read-only: it places no orders
+
+```bash
+$ python examples/example_account_stream.py                      # sync callbacks, runs for 2 minutes
+$ STREAM_MODE=async python examples/example_account_stream.py    # async iterator
+$ STREAM_SECONDS=900 python examples/example_account_stream.py   # run longer
+```
+
+Place or cancel an order in the Public app while it runs to see events arrive.
+
 ### Price Subscription (Sync)
 
 See `example_price_subscription.py` for complete examples including:
@@ -2215,6 +2400,8 @@ All API errors inherit from `APIError` and carry a `status_code`, `response_data
 | `NotFoundError` | 404 | Order not yet indexed after async placement, unknown resource |
 | `RateLimitError` | 429 | Too many requests — check `retry_after` for backoff duration |
 | `ServerError` | 5xx | Transient server error — retry after a short wait |
+| `StreamError` | any or none | An order & trade stream stopped for good, e.g. `max_reconnect_attempts` exhausted |
+| `StreamHandshakeError` | 400, 401, 403, 429, 5xx | The stream's WebSocket handshake was rejected; `retryable` is `True` for 429 and 5xx |
 | `APIError` | any | Base class; catches all of the above |
 
 ```python
@@ -2265,10 +2452,25 @@ finally:
     client.close()
 ```
 
+Stream errors are not raised by `client.stream()` itself, which returns right away. They reach you through `on_error`, `stream.wait()` and `stream.error` on the sync stream, and are raised from `async for` on the async stream. The stream handles routine closes, `429` and `5xx` on its own by reconnecting; see [Order & Trade Stream](#order--trade-stream-websocket).
+
+```python
+from public_api_sdk import StreamError, StreamHandshakeError
+
+stream = client.stream(on_order=on_order, max_reconnect_attempts=10)
+try:
+    stream.wait()
+except StreamHandshakeError as e:
+    print(f"Handshake rejected ({e.status_code}): {e.message}")   # 400 or 403: fix the arguments
+except StreamError as e:
+    print(f"Stream stopped: {e.message}")
+```
+
 ## Important Notes
 
 - Order placement is asynchronous on the exchange side. Always use `get_order()` or `wait_for_fill()` to confirm the final status.
 - For accounts with a default account number configured, the `account_id` parameter is optional in most methods.
 - Both clients manage token acquisition and refresh automatically — no manual token handling is needed.
-- **Sync client:** always call `client.close()` when done to clean up resources.
-- **Async client:** prefer `async with AsyncPublicApiClient(...) as client:` — this cancels all subscriptions and closes the HTTP connection automatically. If you manage the lifecycle manually, call `await client.close()`.
+- **Sync client:** always call `client.close()` when done to clean up resources. It also closes open order & trade streams.
+- **Async client:** prefer `async with AsyncPublicApiClient(...) as client:` — this cancels all subscriptions, closes open streams and closes the HTTP connection automatically. If you manage the lifecycle manually, call `await client.close()`.
+- **Order & trade stream:** delivery is at-most-once with no replay, so reload state from the REST API on every connect. An account allows 5 open connections; close streams you no longer need.

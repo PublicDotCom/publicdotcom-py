@@ -227,3 +227,52 @@ class ServerError(APIError):
         response_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(message, status_code, response_data)
+
+
+class StreamError(APIError):
+    """Raised when an account stream stops for good.
+
+    The stream reconnects on its own after routine closes and transient
+    failures; this is raised only when it gives up, for example after a
+    rejected handshake that would fail the same way again, or once
+    ``max_reconnect_attempts`` consecutive attempts have failed.
+    """
+
+    def __init__(
+        self,
+        message: str = "Account stream stopped",
+        status_code: Optional[int] = None,
+        response_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message, status_code, response_data)
+
+
+class StreamHandshakeError(StreamError):
+    """Raised when the server rejects the WebSocket handshake with an HTTP status.
+
+    Statuses and their usual cause:
+
+    - ``400``: ``accountIds`` or ``channels`` is malformed (a bad account
+      number, ``*`` combined with account numbers, an unknown channel).
+    - ``401``: the access token is missing, invalid or expired. The stream
+      retries once with a fresh token before raising this.
+    - ``403``: an account does not belong to the token's owner, or ``*`` was
+      used for a user without accounts.
+    - ``429``: an account already has 5 open connections. Retried with
+      backoff; raised only once ``max_reconnect_attempts`` is exhausted.
+    - ``500`` / ``503``: a server-side failure. Retried with backoff.
+
+    Attributes:
+        retryable: Whether the same handshake may succeed later (429 and 5xx).
+    """
+
+    def __init__(
+        self,
+        message: str = "WebSocket handshake rejected",
+        status_code: Optional[int] = None,
+        response_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message, status_code, response_data)
+        self.retryable = status_code == 429 or (
+            status_code is not None and status_code >= 500
+        )

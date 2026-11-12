@@ -1,12 +1,22 @@
 import time
 import warnings
+import weakref
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional, Union
 
+from .account_stream import (
+    AccountStream,
+    ConnectCallback,
+    DisconnectCallback,
+    ErrorCallback,
+    OrderCallback,
+    TradeCallback,
+)
 from .api_client import ApiClient
 from .auth_config import AuthConfig
 from .auth_manager import AuthManager
+from .auth_provider import ApiKeyAuthProvider
 from .models import (
     AccountsResponse,
     BarAggregation,
@@ -91,6 +101,13 @@ from .strategy_preflight import (
     _build_two_leg_spread_order_request,
     _build_two_leg_spread_request,
 )
+from .stream_common import (
+    DEFAULT_PING_INTERVAL,
+    AccountsArg,
+    ChannelsArg,
+    normalize_accounts,
+    normalize_channels,
+)
 from .subscription_manager import PriceSubscriptionManager
 
 PROD_BASE_URL = "https://api.public.com"
@@ -166,6 +183,9 @@ class PublicApiClient:
             preflight_func=self.perform_multi_leg_preflight_calculation
         )
 
+        # account streams opened by stream(), closed by close()
+        self._streams: "weakref.WeakSet[AccountStream]" = weakref.WeakSet()
+
     @property
     def api_endpoint(self) -> str:
         """The current API endpoint (base URL).
@@ -190,7 +210,92 @@ class PublicApiClient:
             self._subscription_manager.stop()
         if hasattr(self, "_order_subscription_manager"):
             self._order_subscription_manager.stop()
+        for stream in list(getattr(self, "_streams", ())):
+            stream.close()
         self.api_client.close()
+
+    def stream(
+        self,
+        accounts: AccountsArg = None,
+        channels: ChannelsArg = None,
+        *,
+        on_order: Optional[OrderCallback] = None,
+        on_trade: Optional[TradeCallback] = None,
+        on_connect: Optional[ConnectCallback] = None,
+        on_disconnect: Optional[DisconnectCallback] = None,
+        on_error: Optional[ErrorCallback] = None,
+        ping_interval: float = DEFAULT_PING_INTERVAL,
+        max_reconnect_attempts: Optional[int] = None,
+        deduplicate: bool = True,
+        start: bool = True,
+    ) -> AccountStream:
+        """Stream the order and trade events of accounts over a WebSocket.
+
+        The stream runs on a background thread and calls the callbacks from
+        it. It keeps the connection alive with a heartbeat and reconnects with
+        backoff whenever the connection closes. It authenticates with the same
+        access token as the REST calls.
+
+        Delivery is at-most-once and nothing is replayed after a reconnect, so
+        use ``on_connect`` to load the current state from the REST API. It is
+        called on the first connect and after every reconnect, before any event
+        of that connection is delivered.
+
+        Args:
+            accounts: An account number, a list of them, or ``"*"`` for all of
+                the user's accounts at the moment of connecting. Defaults to
+                the configured default account, or ``"*"`` without one.
+            channels: ``StreamChannel.ORDER`` and/or ``StreamChannel.TRADE``
+                (or their names). Defaults to both.
+            on_order: Called with an :class:`OrderUpdateEvent` every time an
+                order changes. ``event.order`` is the complete order.
+            on_trade: Called with a :class:`TradeEvent` for every execution,
+                and again with status ``CANCELLED`` if it is taken back.
+            on_connect: Called with a :class:`StreamConnectedEvent` on every
+                connect; ``is_reconnect`` tells the first one apart.
+            on_disconnect: Called with a :class:`StreamDisconnectedEvent` when
+                a connection ends or an attempt fails.
+            on_error: Called with the :class:`StreamError` that stops the
+                stream for good (also available as ``stream.error``).
+            ping_interval: Seconds between heartbeats (default 60).
+            max_reconnect_attempts: Consecutive failed attempts before giving
+                up. ``None`` (the default) retries forever.
+            deduplicate: Drop order events whose version is not newer than
+                one already delivered, and repeated trade events.
+            start: Connect right away. With False, call ``stream.start()``.
+
+        Returns:
+            The :class:`AccountStream`. Call ``close()`` when done, or use it
+            as a context manager; ``client.close()`` closes it too.
+        """
+        account_stream = AccountStream(
+            base_url=self.api_client.base_url,
+            account_ids=normalize_accounts(
+                accounts, self.config.default_account_number
+            ),
+            channels=normalize_channels(channels),
+            token_provider=self._stream_access_token,
+            on_order=on_order,
+            on_trade=on_trade,
+            on_connect=on_connect,
+            on_disconnect=on_disconnect,
+            on_error=on_error,
+            ping_interval=ping_interval,
+            max_reconnect_attempts=max_reconnect_attempts,
+            deduplicate=deduplicate,
+        )
+        self._streams.add(account_stream)
+        if start:
+            account_stream.start()
+        return account_stream
+
+    def _stream_access_token(self, force_refresh: bool) -> str:
+        """The access token for a stream handshake (the REST token)."""
+        provider = self.auth_manager.auth_provider
+        if force_refresh and isinstance(provider, ApiKeyAuthProvider):
+            # pylint: disable=protected-access
+            provider._create_personal_access_token()
+        return provider.get_access_token()
 
     def __get_account_id(self, account_id: Optional[str] = None) -> str:
         if account_id:
