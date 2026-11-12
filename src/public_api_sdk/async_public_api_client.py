@@ -3,18 +3,27 @@
 import asyncio
 import time
 import warnings
+import weakref
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional, TYPE_CHECKING, Union
 
 import httpx
 
+from .async_account_stream import AsyncAccountStream
 from .async_api_client import AsyncApiClient
-from .async_auth_provider import AsyncAuthManager
+from .async_auth_provider import AsyncApiKeyAuthProvider, AsyncAuthManager
 from .async_order_subscription_manager import AsyncOrderSubscriptionManager
 from .async_price_stream import AsyncPriceStream
 from .async_strategy_preflight import AsyncStrategyPreflight
 from .async_subscription_manager import AsyncPriceSubscriptionManager
+from .stream_common import (
+    DEFAULT_PING_INTERVAL,
+    AccountsArg,
+    ChannelsArg,
+    normalize_accounts,
+    normalize_channels,
+)
 from .strategy_preflight import (
     _SpreadKind,
     _build_two_leg_spread_order_request,
@@ -185,6 +194,9 @@ class AsyncPublicApiClient:
             preflight_func=self.perform_multi_leg_preflight_calculation
         )
 
+        # account streams opened by stream(), closed by close()
+        self._streams: "weakref.WeakSet[AsyncAccountStream]" = weakref.WeakSet()
+
     # ------------------------------------------------------------------ #
     # Context manager                                                      #
     # ------------------------------------------------------------------ #
@@ -201,10 +213,80 @@ class AsyncPublicApiClient:
         await self.close()
 
     async def close(self) -> None:
-        """Cancel subscription tasks and close the HTTP client."""
+        """Cancel subscription tasks, close streams and the HTTP client."""
         await self._subscription_manager.stop()
         await self._order_subscription_manager.stop()
+        for stream in list(getattr(self, "_streams", ())):
+            await stream.close()
         await self.api_client.aclose()
+
+    # ------------------------------------------------------------------ #
+    # Account stream (WebSocket)                                           #
+    # ------------------------------------------------------------------ #
+
+    def stream(
+        self,
+        accounts: AccountsArg = None,
+        channels: ChannelsArg = None,
+        *,
+        ping_interval: float = DEFAULT_PING_INTERVAL,
+        max_reconnect_attempts: Optional[int] = None,
+        deduplicate: bool = True,
+    ) -> AsyncAccountStream:
+        """Stream the order and trade events of accounts over a WebSocket.
+
+        Returns an :class:`AsyncAccountStream` to iterate, preferably with
+        ``async with``. The connection runs as a task in the current event
+        loop, keeps itself alive with a heartbeat and reconnects with backoff
+        whenever it closes. It authenticates with the same access token as
+        the REST calls.
+
+        The iterator yields :class:`OrderUpdateEvent` and :class:`TradeEvent`,
+        plus a :class:`StreamConnectedEvent` on every connect and a
+        :class:`StreamDisconnectedEvent` when a connection ends. Delivery is
+        at-most-once and nothing is replayed after a reconnect: load the
+        current state from the REST API on each ``StreamConnectedEvent``.
+
+        Example::
+
+            async with client.stream(channels=[StreamChannel.ORDER]) as stream:
+                async for event in stream:
+                    if isinstance(event, OrderUpdateEvent):
+                        print(event.order.status)
+
+        Args:
+            accounts: An account number, a list of them, or ``"*"`` for all of
+                the user's accounts at the moment of connecting. Defaults to
+                the configured default account, or ``"*"`` without one.
+            channels: ``StreamChannel.ORDER`` and/or ``StreamChannel.TRADE``
+                (or their names). Defaults to both.
+            ping_interval: Seconds between heartbeats (default 60).
+            max_reconnect_attempts: Consecutive failed attempts before giving
+                up with a :class:`StreamError`. ``None`` retries forever.
+            deduplicate: Drop order events whose version is not newer than
+                one already delivered, and repeated trade events.
+        """
+        account_stream = AsyncAccountStream(
+            base_url=self.api_client.base_url,
+            account_ids=normalize_accounts(
+                accounts, self.config.default_account_number
+            ),
+            channels=normalize_channels(channels),
+            token_provider=self._stream_access_token,
+            ping_interval=ping_interval,
+            max_reconnect_attempts=max_reconnect_attempts,
+            deduplicate=deduplicate,
+        )
+        self._streams.add(account_stream)
+        return account_stream
+
+    async def _stream_access_token(self, force_refresh: bool) -> str:
+        """The access token for a stream handshake (the REST token)."""
+        provider = self.auth_manager.auth_provider
+        if force_refresh and isinstance(provider, AsyncApiKeyAuthProvider):
+            # pylint: disable=protected-access
+            await provider._create_personal_access_token()
+        return await provider.get_access_token()
 
     # ------------------------------------------------------------------ #
     # Endpoint property                                                    #

@@ -169,6 +169,22 @@ from .new_order import (
     WaitTimeoutError,
 )
 from .async_new_order import AsyncNewOrder
+from .stream import (
+    OrderUpdateEvent,
+    StreamChannel,
+    StreamConnectedEvent,
+    StreamDisconnectedEvent,
+    StreamEvent,
+    StreamInstrument,
+    StreamLegInstrument,
+    StreamOrder,
+    StreamOrderExpiration,
+    StreamOrderLeg,
+    StreamTrade,
+    StreamTrailingStop,
+    TradeEvent,
+    TradeStatus,
+)
 
 __all__ = [
     "Bar",
@@ -321,4 +337,19 @@ __all__ = [
     "OrderSubscriptionConfig",
     "WaitTimeoutError",
     "AsyncNewOrder",
+    # Account stream
+    "OrderUpdateEvent",
+    "StreamChannel",
+    "StreamConnectedEvent",
+    "StreamDisconnectedEvent",
+    "StreamEvent",
+    "StreamInstrument",
+    "StreamLegInstrument",
+    "StreamOrder",
+    "StreamOrderExpiration",
+    "StreamOrderLeg",
+    "StreamTrade",
+    "StreamTrailingStop",
+    "TradeEvent",
+    "TradeStatus",
 ]

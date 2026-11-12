@@ -242,7 +242,7 @@ class TestExports:
         assert name in public_api_sdk.models.__all__
 
     def test_version_bumped(self) -> None:
-        assert public_api_sdk.__version__ == "0.1.28"
+        assert public_api_sdk.__version__ == "0.2.0"
 
 
 # ---------------------------------------------------------------------------

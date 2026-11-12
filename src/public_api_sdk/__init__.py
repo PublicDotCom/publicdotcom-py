@@ -1,5 +1,11 @@
 from .auth_config import ApiKeyAuthConfig, AsyncAuthConfig, AuthConfig, OAuthAuthConfig
-from .exceptions import APIError, AuthenticationError, RateLimitError
+from .exceptions import (
+    APIError,
+    AuthenticationError,
+    RateLimitError,
+    StreamError,
+    StreamHandshakeError,
+)
 from .models import (
     Account,
     AccountType,
@@ -148,7 +154,23 @@ from .models import (
     UnrealizedLotsSummaryResponse,
     UptickRule,
     WaitTimeoutError,
+    OrderUpdateEvent,
+    StreamChannel,
+    StreamConnectedEvent,
+    StreamDisconnectedEvent,
+    StreamEvent,
+    StreamInstrument,
+    StreamLegInstrument,
+    StreamOrder,
+    StreamOrderExpiration,
+    StreamOrderLeg,
+    StreamTrade,
+    StreamTrailingStop,
+    TradeEvent,
+    TradeStatus,
 )
+from .account_stream import AccountStream
+from .async_account_stream import AsyncAccountStream
 from .async_price_stream import AsyncPriceStream
 from .async_public_api_client import AsyncPublicApiClient, AsyncPublicApiClientConfiguration
 from .async_strategy_preflight import AsyncStrategyPreflight
@@ -159,7 +181,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.1.28"
+__version__ = "0.2.0"
 
 __all__ = [
     # Historic data
@@ -329,8 +351,27 @@ __all__ = [
     "AsyncPriceStream",
     "AsyncStrategyPreflight",
     "AsyncFlattenAndShortResult",
+    # Account stream (WebSocket)
+    "AccountStream",
+    "AsyncAccountStream",
+    "OrderUpdateEvent",
+    "StreamChannel",
+    "StreamConnectedEvent",
+    "StreamDisconnectedEvent",
+    "StreamEvent",
+    "StreamInstrument",
+    "StreamLegInstrument",
+    "StreamOrder",
+    "StreamOrderExpiration",
+    "StreamOrderLeg",
+    "StreamTrade",
+    "StreamTrailingStop",
+    "TradeEvent",
+    "TradeStatus",
     # Exceptions
     "APIError",
     "AuthenticationError",
     "RateLimitError",
+    "StreamError",
+    "StreamHandshakeError",
 ]
