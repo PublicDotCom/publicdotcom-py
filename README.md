@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.2.1-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.2.2-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -2363,15 +2363,19 @@ See `example_order_subscription.py` for three ways to track an order after place
 See `example_account_stream.py` for the WebSocket stream, sync and async:
 - Callbacks for order updates and trades, with REST state loaded on every (re)connect
 - The async iterator with `StreamConnectedEvent` / `StreamDisconnectedEvent`
-- Read-only: it places no orders
+- Speed metrics: per-event latency, connect time, and a min / median / p95 / max summary on exit
+- Read-only by default: it places no orders unless `ROUNDTRIP_SYMBOL` is set
 
 ```bash
 $ python examples/example_account_stream.py                      # sync callbacks, runs for 2 minutes
 $ STREAM_MODE=async python examples/example_account_stream.py    # async iterator
 $ STREAM_SECONDS=900 python examples/example_account_stream.py   # run longer
+$ ROUNDTRIP_SYMBOL=VT python examples/example_account_stream.py  # places a REAL order: time place/cancel -> events
 ```
 
-Place or cancel an order in the Public app while it runs to see events arrive.
+Place or cancel an order in the Public app while it runs to see events arrive. Each order and trade line shows `server` (the order change to the frame being sent, both on Public's clock), `network` (the frame being sent to it arriving here) and `total`. `network` and `total` compare Public's clock with yours, so clock skew shows up in them: a negative `network` means your clock is behind (check with `sntp time.apple.com`). The round trip is timed with your clock only, so skew doesn't affect it.
+
+`ROUNDTRIP_SYMBOL` needs `DEFAULT_ACCOUNT_NUMBER`. With the default `ROUNDTRIP_MODE=limit` it places a 1-share BUY limit at 80% of the bid, so it shouldn't fill, then cancels it. `ROUNDTRIP_MODE=market` buys at market and times the fill and trade, so it buys real shares (`ROUNDTRIP_QUANTITY`, default 1).
 
 ### Price Subscription (Sync)
 

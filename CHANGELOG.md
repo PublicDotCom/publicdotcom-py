@@ -2,6 +2,17 @@
 
 All notable changes to `publicdotcom-py` are documented here.
 
+## 0.2.2 — 2026-11-19
+
+### Added
+- `examples/example_account_stream.py` measures stream speed: per-event
+  latency (server, network, total), connect and reconnect time, and a
+  min / median / p95 / max summary on exit. An opt-in round trip
+  (`ROUNDTRIP_SYMBOL`) places a real order and times place/cancel or fill to
+  the matching stream events. Without it the example still places no orders.
+
+No library changes.
+
 ## 0.2.1 — 2026-11-19
 
 ### Fixed
