@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.2.0-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.2.1-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -1699,8 +1699,19 @@ subscription_id = client.price_stream.subscribe(
 
 `client.stream()` opens one WebSocket that pushes your orders and trades as they change, instead of polling. It uses the same access token as the REST calls.
 
+> **Upgrading from 0.2.0:** on 2026-11-15 the API changed the stream's frame format (the order or trade moved from `payload` to `data`). 0.2.0 can't read the new frames: its stream stays connected but delivers no order or trade events. Upgrade to 0.2.1 or later. No code changes are needed: events still expose `event.order` and `event.trade`.
+
 - **`order` channel** — an `OrderUpdateEvent` every time an order changes (accepted, partially filled, filled, cancelled, rejected, expired, replaced). `event.order` is a `StreamOrder`: the **complete** order after the change, with a `version` that increases with every change.
 - **`trade` channel** — a `TradeEvent` for every execution (fill). `event.trade` is a `StreamTrade` with status `NEW`, sent again with the same `trade_id` and status `CANCELLED` if the trade is taken back.
+
+Each frame carries the order or trade in its `data` field, with prices and quantities as decimal strings:
+
+```json
+{"channel": "order", "type": "ORDER_UPDATE", "data": {"orderId": "...", "status": "FILLED", "averagePrice": "150.10500000", "fees": "0.00", "version": 2, "...": "..."}, "timestamp": "..."}
+{"channel": "trade", "type": "TRADE", "data": {"tradeId": "...", "price": "150.10500000", "marketIdentificationCode": "JNST", "fees": "0.00", "...": "..."}, "timestamp": "..."}
+```
+
+The SDK parses these for you into `event.order` and `event.trade`. Frames in the older `payload` format are still read.
 
 The stream runs on a background thread, sends a heartbeat every 60 seconds, and reconnects with backoff whenever the connection closes (the server closes connections after 10 idle minutes and after 2 hours at the latest).
 
@@ -1785,6 +1796,7 @@ A `StreamDisconnectedEvent` is routine: the server closes connections on a sched
 | `type`, `side`, `status` | `OrderType`, `OrderSide`, `OrderStatus` | |
 | `quantity` / `notional_value` | `Decimal` | One of the two, depending on how the order was placed |
 | `filled_quantity`, `average_price` | `Decimal` | |
+| `fees`, `commission`, `rebate` | `Decimal` | Charged/paid on the order's executions so far |
 | `limit_price`, `stop_price` | `Decimal` | |
 | `trailing_stop`, `high_watermark` | `StreamTrailingStop`, `Decimal` | Trailing stop orders: `type` (`AMOUNT` / `PERCENTAGE`), `value`, `limit_offset` |
 | `expiration` | `StreamOrderExpiration` | `time_in_force`, `expiration_time` (for `GTD`) |
@@ -1812,8 +1824,9 @@ Everything except `order_id`, `account_number`, `version`, `instrument`, `type`,
 | `side`, `quantity`, `price` | `OrderSide`, `Decimal`, `Decimal` | `price` is per share or contract |
 | `timestamp` | `datetime` | When the trade happened |
 | `market_identification_code` | `Optional[str]` | ISO 10383 MIC of the venue, if reported |
+| `fees`, `commission`, `rebate` | `Optional[Decimal]` | Charged/paid on this trade |
 
-Trades carry no fees or commissions. An order event and the trade event of the same fill can arrive in either order.
+An order event and the trade event of the same fill can arrive in either order.
 
 #### The Stream Object
 
