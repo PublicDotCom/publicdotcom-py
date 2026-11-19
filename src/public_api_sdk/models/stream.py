@@ -210,6 +210,15 @@ class StreamOrder(BaseModel):
     average_price: Optional[Decimal] = Field(
         None, alias="averagePrice"
     )
+    fees: Optional[Decimal] = Field(
+        None, description="Fees charged on the order's executions so far"
+    )
+    commission: Optional[Decimal] = Field(
+        None, description="Commission charged on the order's executions so far"
+    )
+    rebate: Optional[Decimal] = Field(
+        None, description="Rebate paid on the order's executions so far"
+    )
     legs: Optional[List[StreamOrderLeg]] = Field(None)
     bracket_id: Optional[str] = Field(
         None,
@@ -256,7 +265,7 @@ class StreamTrade(BaseModel):
 
     A trade is published with status ``NEW`` when it is recorded, and again
     with the same ``trade_id`` and status ``CANCELLED`` if it is taken back.
-    Keep the latest frame per ``trade_id``. Trades carry no fees or commissions.
+    Keep the latest frame per ``trade_id``.
     """
 
     model_config = {"populate_by_name": True}
@@ -284,6 +293,11 @@ class StreamTrade(BaseModel):
         alias="marketIdentificationCode",
         description="ISO 10383 MIC of the execution venue, if reported",
     )
+    fees: Optional[Decimal] = Field(None, description="Fees charged on this trade")
+    commission: Optional[Decimal] = Field(
+        None, description="Commission charged on this trade"
+    )
+    rebate: Optional[Decimal] = Field(None, description="Rebate paid on this trade")
 
 
 class OrderUpdateEvent(BaseModel):

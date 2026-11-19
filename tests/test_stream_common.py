@@ -2,6 +2,8 @@
 
 import json
 from decimal import Decimal
+from pathlib import Path
+from typing import List
 
 import pytest
 
@@ -39,10 +41,15 @@ def order_frame(version: int = 1, status: str = "NEW", **order_fields: object) -
         "type": "LIMIT",
         "side": "BUY",
         "status": status,
-        "quantity": 10,
+        "quantity": "10",
         "expiration": {"timeInForce": "DAY", "expirationTime": None},
-        "limitPrice": 180.10,
+        "limitPrice": "180.10",
         "session": "CORE",
+        "filledQuantity": "0",
+        "averagePrice": "0.00",
+        "fees": "0.00",
+        "commission": "0.00",
+        "rebate": "0.00",
         "effective": True,
         "editable": True,
         "cancellable": True,
@@ -54,7 +61,7 @@ def order_frame(version: int = 1, status: str = "NEW", **order_fields: object) -
         {
             "channel": "order",
             "type": "ORDER_UPDATE",
-            "payload": {"order": order},
+            "data": order,
             "timestamp": "2026-10-28T20:00:00.120Z",
         }
     )
@@ -73,16 +80,38 @@ def trade_frame(trade_id: str = "T-1", status: str = "NEW", **fields: object) ->
         "side": "BUY",
         "timestamp": "2026-10-28T19:59:59Z",
         "marketIdentificationCode": "XNAS",
+        "fees": "0.00",
+        "commission": "0.00",
+        "rebate": "0.00",
     }
     trade.update(fields)
     return json.dumps(
         {
             "channel": "trade",
             "type": "TRADE",
-            "payload": trade,
+            "data": trade,
             "timestamp": "2026-10-28T20:00:00Z",
         }
     )
+
+
+def legacy_frame(raw: str) -> str:
+    """Rewrite a ``data`` frame into the pre-2026-11-15 ``payload`` shape."""
+    frame = json.loads(raw)
+    data = frame.pop("data")
+    frame["payload"] = {"order": data} if frame["channel"] == "order" else data
+    return json.dumps(frame)
+
+
+CAPTURED_FRAMES = Path(__file__).parent / "fixtures" / "stream_frames_2026-11-17.jsonl"
+
+
+def captured_frames() -> List[str]:
+    return [
+        line
+        for line in CAPTURED_FRAMES.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -268,6 +297,106 @@ class TestFrameParserTrades:
         assert event.trade.status is TradeStatus.UNKNOWN
 
 
+class TestFrameParserCapturedFrames:
+    """Frames captured from the API on 2026-11-17 (account number replaced)."""
+
+    def test_every_captured_frame_is_an_event(self) -> None:
+        parser = FrameParser()
+        frames = captured_frames()
+        assert len(frames) == 3
+        for raw in frames:
+            kind, event = parser.parse(raw)
+            assert kind is FrameKind.EVENT, raw
+            assert event is not None
+
+    def test_order_fields(self) -> None:
+        parser = FrameParser()
+        new_raw, filled_raw, _ = captured_frames()
+
+        _, new = parser.parse(new_raw)
+        assert isinstance(new, OrderUpdateEvent)
+        assert new.order.order_id == "01a1ea6e-b273-72b6-b78b-a3464afc2b4e"
+        assert new.order.account_number == "5RE12345"
+        assert new.order.status is OrderStatus.NEW
+        assert new.order.version == 1
+        assert new.order.type is OrderType.MARKET
+        assert new.order.instrument.symbol == "VT"
+        assert new.order.quantity == Decimal("1")
+        assert new.order.filled_quantity == Decimal("0")
+        assert new.order.average_price == Decimal("0.00")
+
+        _, filled = parser.parse(filled_raw)
+        assert isinstance(filled, OrderUpdateEvent)
+        order = filled.order
+        assert order.status is OrderStatus.FILLED
+        assert order.is_final
+        assert order.version == 2
+        assert order.filled_quantity == Decimal("1")
+        assert isinstance(order.average_price, Decimal)
+        assert order.average_price == Decimal("150.10500000")
+        assert order.fees == Decimal("0.00")
+        assert order.commission == Decimal("0.00")
+        assert order.rebate == Decimal("0.00")
+        assert filled.timestamp is not None
+
+    def test_trade_fields(self) -> None:
+        _, event = FrameParser().parse(captured_frames()[2])
+        assert isinstance(event, TradeEvent)
+        trade = event.trade
+        assert trade.trade_id == "a1222369541"
+        assert trade.order_id == "01a1ea6e-b273-72b6-b78b-a3464afc2b4e"
+        assert trade.status is TradeStatus.NEW
+        assert trade.price == Decimal("150.10500000")
+        assert trade.quantity == Decimal("1")
+        assert trade.market_identification_code == "JNST"
+        assert trade.fees == Decimal("0.00")
+        assert trade.commission == Decimal("0.00")
+        assert trade.rebate == Decimal("0.00")
+
+    def test_repeated_order_version_is_dropped(self) -> None:
+        parser = FrameParser()
+        new_raw, filled_raw, trade_raw = captured_frames()
+        assert parser.parse(new_raw)[0] is FrameKind.EVENT
+        assert parser.parse(filled_raw)[0] is FrameKind.EVENT
+        assert parser.parse(trade_raw)[0] is FrameKind.EVENT
+        # a replay of the same frames delivers nothing new
+        assert parser.parse(filled_raw) == (FrameKind.IGNORED, None)
+        assert parser.parse(new_raw) == (FrameKind.IGNORED, None)
+        assert parser.parse(trade_raw) == (FrameKind.IGNORED, None)
+
+
+class TestFrameParserLegacyShape:
+    """Frames in the pre-2026-11-15 ``payload`` shape still parse."""
+
+    def test_order_under_payload_order(self) -> None:
+        raw = legacy_frame(order_frame(version=3, status="FILLED"))
+        assert "payload" in json.loads(raw) and "data" not in json.loads(raw)
+        kind, event = FrameParser().parse(raw)
+        assert kind is FrameKind.EVENT
+        assert isinstance(event, OrderUpdateEvent)
+        assert event.order.version == 3
+        assert event.order.status is OrderStatus.FILLED
+
+    def test_trade_under_payload(self) -> None:
+        kind, event = FrameParser().parse(legacy_frame(trade_frame(trade_id="T-9")))
+        assert kind is FrameKind.EVENT
+        assert isinstance(event, TradeEvent)
+        assert event.trade.trade_id == "T-9"
+        assert event.trade.price == Decimal("170.00")
+
+    def test_data_wins_over_payload(self) -> None:
+        frame = json.loads(order_frame(version=7))
+        frame["payload"] = {"order": {"broken": True}}
+        _, event = FrameParser().parse(json.dumps(frame))
+        assert isinstance(event, OrderUpdateEvent)
+        assert event.order.version == 7
+
+    def test_dedup_spans_both_shapes(self) -> None:
+        parser = FrameParser()
+        assert parser.parse(legacy_frame(order_frame(version=2)))[0] is FrameKind.EVENT
+        assert parser.parse(order_frame(version=2)) == (FrameKind.IGNORED, None)
+
+
 class TestFrameParserOtherFrames:
     @pytest.mark.parametrize(
         "raw",
@@ -276,9 +405,20 @@ class TestFrameParserOtherFrames:
             "[1, 2]",
             json.dumps({"channel": "position", "type": "POSITION_UPDATE", "payload": {}}),
             json.dumps({"channel": "order", "type": "ORDER_DELETED", "payload": {}}),
-            # a known type whose payload is broken is logged and skipped
+            json.dumps({"channel": "position", "type": "POSITION_UPDATE", "data": {}}),
+            json.dumps({"channel": "order", "type": "ORDER_DELETED", "data": {}}),
+            json.dumps({"channel": "trade", "type": "TRADE_BUSTED", "data": {}}),
+            # a known type whose data is broken is logged and skipped
+            json.dumps({"channel": "order", "type": "ORDER_UPDATE", "data": {}}),
             json.dumps({"channel": "order", "type": "ORDER_UPDATE", "payload": {"order": {}}}),
             json.dumps({"channel": "trade", "type": "TRADE", "payload": None}),
+            # neither data nor payload
+            json.dumps({"channel": "order", "type": "ORDER_UPDATE", "timestamp": "2026-11-17T16:54:46Z"}),
+            json.dumps({"channel": "trade", "type": "TRADE", "timestamp": "2026-11-17T16:54:46Z"}),
+            # data that is not a dict
+            json.dumps({"channel": "order", "type": "ORDER_UPDATE", "data": "oops"}),
+            json.dumps({"channel": "trade", "type": "TRADE", "data": ["a", "b"]}),
+            json.dumps({"channel": "trade", "type": "TRADE", "data": None}),
         ],
     )
     def test_ignored(self, raw: str) -> None:

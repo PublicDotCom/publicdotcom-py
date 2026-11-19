@@ -12,6 +12,7 @@ import random
 from decimal import Decimal
 from enum import Enum
 from typing import (
+    Any,
     Callable,
     Dict,
     Iterable,
@@ -147,6 +148,36 @@ def handshake_error(status_code: int, body: bytes) -> StreamHandshakeError:
     return StreamHandshakeError(message, status_code=status_code)
 
 
+def _frame_data(frame: Dict[str, Any], legacy_key: Optional[str] = None) -> Optional[Any]:
+    """Return the order or trade carried by a stream frame.
+
+    The API sends it under a top-level ``data`` field (since 2026-11-15)::
+
+        {"channel": "order", "type": "ORDER_UPDATE", "data": {...order...}, "timestamp": ...}
+        {"channel": "trade", "type": "TRADE", "data": {...trade...}, "timestamp": ...}
+
+    Before that it was under ``payload``: the order nested as
+    ``payload["order"]`` and the trade as ``payload`` itself::
+
+        {"channel": "order", "type": "ORDER_UPDATE", "payload": {"order": {...}}, ...}
+        {"channel": "trade", "type": "TRADE", "payload": {...trade...}, ...}
+
+    ``data`` wins when it is a dict. Otherwise ``payload`` is used:
+    ``payload[legacy_key]`` when ``legacy_key`` is given (``"order"`` for
+    orders), else ``payload`` itself (trades). Returns ``None`` when the frame
+    has neither.
+    """
+    data = frame.get("data")
+    if isinstance(data, dict):
+        return data
+    payload = frame.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    if legacy_key is not None:
+        return payload.get(legacy_key)
+    return payload
+
+
 class FrameKind(Enum):
     EVENT = "event"
     PONG = "pong"
@@ -173,7 +204,8 @@ class FrameParser:
 
     def parse(self, raw: Union[str, bytes]) -> Tuple[FrameKind, Optional[StreamDataEvent]]:
         try:
-            # Prices and quantities of orders are JSON numbers: keep them exact.
+            # Prices and quantities arrive as decimal strings; parse_float keeps
+            # any that arrive as JSON numbers exact too.
             frame = json.loads(raw, parse_float=Decimal)
         except (TypeError, ValueError):
             logger.warning("Ignoring a stream frame that is not JSON: %.200r", raw)
@@ -186,9 +218,6 @@ class FrameParser:
             return FrameKind.PONG, None
 
         channel = frame.get("channel")
-        payload = frame.get("payload")
-        if not isinstance(payload, dict):
-            payload = {}
         try:
             if channel == StreamChannel.ORDER.value and frame_type == "ORDER_UPDATE":
                 order_event = OrderUpdateEvent.model_validate(
@@ -196,7 +225,7 @@ class FrameParser:
                         "channel": channel,
                         "type": frame_type,
                         "timestamp": frame.get("timestamp"),
-                        "order": payload.get("order"),
+                        "order": _frame_data(frame, legacy_key="order"),
                     }
                 )
                 if self._is_new_order_version(order_event):
@@ -208,7 +237,7 @@ class FrameParser:
                         "channel": channel,
                         "type": frame_type,
                         "timestamp": frame.get("timestamp"),
-                        "trade": payload,
+                        "trade": _frame_data(frame),
                     }
                 )
                 if self._is_new_trade_status(trade_event):
