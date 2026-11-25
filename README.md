@@ -1,6 +1,6 @@
 [![Public API Python SDK](banner.png)](https://public.com/api)
 
-![Version](https://img.shields.io/badge/version-0.2.1-brightgreen?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.2.2-brightgreen?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square)
 
@@ -1527,6 +1527,11 @@ for order in orders:
     print(f"{order.order_id}: {order.status} {order.filled_quantity} @ {order.average_price}")
 ```
 
+Orders in responses (`search_orders`, `get_order`, `get_portfolio().orders`) are lenient:
+
+- **Unknown enum values are kept.** An order type, side, time in force, instrument type or open/close indicator the SDK does not know yet comes through as a plain string instead of failing the whole response. Known values are still enum members. Compare with `==` (`order.type == OrderType.LIMIT`), not `.value`, which a plain string doesn't have. `status` and `equity_market_session` still fall back to `UNKNOWN`.
+- **Trailing stops.** The trailing stop-loss leg of a bracket comes back as `OrderType.TRAILING_STOP` or `OrderType.TRAILING_STOP_LIMIT`, with `order.trailing_stop` (`type` `AMOUNT` / `PERCENTAGE`, `value`, `limit_offset`) and `order.high_watermark`. A `PERCENTAGE` value is a fraction: `0.05` is 5%. These types are response-only: order requests reject them.
+
 #### Cancel Order
 
 Submit an asynchronous request to cancel an order.
@@ -1798,7 +1803,7 @@ A `StreamDisconnectedEvent` is routine: the server closes connections on a sched
 | `filled_quantity`, `average_price` | `Decimal` | |
 | `fees`, `commission`, `rebate` | `Decimal` | Charged/paid on the order's executions so far |
 | `limit_price`, `stop_price` | `Decimal` | |
-| `trailing_stop`, `high_watermark` | `StreamTrailingStop`, `Decimal` | Trailing stop orders: `type` (`AMOUNT` / `PERCENTAGE`), `value`, `limit_offset` |
+| `trailing_stop`, `high_watermark` | `StreamTrailingStop` (same model as `TrailingStop`), `Decimal` | Trailing stop orders: `type` (`AMOUNT` / `PERCENTAGE`), `value`, `limit_offset` |
 | `expiration` | `StreamOrderExpiration` | `time_in_force`, `expiration_time` (for `GTD`) |
 | `session` | `EquityMarketSession` | Equity orders |
 | `open_close_indicator` | `OpenCloseIndicator` | Option orders |

@@ -18,57 +18,22 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Callable, List, Optional, Type, TypeVar, Union
+from typing import List, Optional, Union
 
-from pydantic import BaseModel, BeforeValidator, Field
-from typing_extensions import Annotated
+from pydantic import BaseModel, Field
 
-from .instrument_type import InstrumentType
-from .order import (
-    EquityMarketSession,
-    LegInstrumentType,
-    OpenCloseIndicator,
-    OrderSide,
-    OrderStatus,
-    OrderType,
-    TimeInForce,
+# Enum fields that keep an unrecognised value as the raw string; shared with
+# the REST response models.
+from ._lenient import (
+    LenientInstrumentType,
+    LenientLegInstrumentType,
+    LenientMarketSession,
+    LenientOpenCloseIndicator,
+    LenientOrderSide,
+    LenientOrderType,
+    LenientTimeInForce,
 )
-
-_E = TypeVar("_E", bound=Enum)
-
-
-def _lenient(enum_cls: Type[_E]) -> Callable[[Any], Any]:
-    """Coerce a known value to ``enum_cls`` and leave an unknown one as is."""
-
-    def _coerce(value: Any) -> Any:
-        if isinstance(value, str) and not isinstance(value, Enum):
-            try:
-                return enum_cls(value)
-            except ValueError:
-                return value
-        return value
-
-    return _coerce
-
-
-# Enum fields that keep an unrecognised value as the raw string.
-LenientOrderType = Annotated[Union[OrderType, str], BeforeValidator(_lenient(OrderType))]
-LenientOrderSide = Annotated[Union[OrderSide, str], BeforeValidator(_lenient(OrderSide))]
-LenientInstrumentType = Annotated[
-    Union[InstrumentType, str], BeforeValidator(_lenient(InstrumentType))
-]
-LenientLegInstrumentType = Annotated[
-    Union[LegInstrumentType, str], BeforeValidator(_lenient(LegInstrumentType))
-]
-LenientTimeInForce = Annotated[
-    Union[TimeInForce, str], BeforeValidator(_lenient(TimeInForce))
-]
-LenientMarketSession = Annotated[
-    Union[EquityMarketSession, str], BeforeValidator(_lenient(EquityMarketSession))
-]
-LenientOpenCloseIndicator = Annotated[
-    Union[OpenCloseIndicator, str], BeforeValidator(_lenient(OpenCloseIndicator))
-]
+from .order import OrderStatus, TrailingStop
 
 
 class StreamChannel(str, Enum):
@@ -128,18 +93,9 @@ class StreamOrderExpiration(BaseModel):
     )
 
 
-class StreamTrailingStop(BaseModel):
-    """The trail of a trailing stop order."""
-
-    model_config = {"populate_by_name": True}
-
-    type: Optional[str] = Field(None, description="AMOUNT or PERCENTAGE")
-    value: Optional[Decimal] = Field(
-        None, description="The trail. A percentage is a fraction: 0.05 is 5%."
-    )
-    limit_offset: Optional[Decimal] = Field(
-        None, alias="limitOffset"
-    )
+StreamTrailingStop = TrailingStop
+"""The trail of a streamed trailing stop order; the same model as the REST
+:class:`~public_api_sdk.models.order.TrailingStop`."""
 
 
 class StreamLegInstrument(BaseModel):

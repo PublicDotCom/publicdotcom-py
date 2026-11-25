@@ -142,7 +142,7 @@ class AsyncApiClient:
                     return float(min(int(header), 60))
                 except (TypeError, ValueError):
                     pass
-        return min(self._backoff_factor * (2 ** (attempt - 1)), 60.0)
+        return min(self._backoff_factor * (2.0 ** (attempt - 1)), 60.0)
 
     async def _request_with_retry(
         self,
