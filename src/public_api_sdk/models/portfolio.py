@@ -1,12 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field
+from typing_extensions import Annotated
 
+from ._lenient import LenientAccountType, LenientInstrumentType, _lenient
 from .account import AccountType
-from .instrument_type import InstrumentType
 from .order import Order
 
 # `AccountType` is re-exported here so existing imports from
@@ -68,8 +69,13 @@ class AssetType(str, Enum):
     CRYPTO = "CRYPTO"
 
 
+# A portfolio is a response: its enum fields keep a value the SDK does not
+# know yet as the raw string (see `_lenient.py`).
+LenientAssetType = Annotated[Union[AssetType, str], BeforeValidator(_lenient(AssetType))]
+
+
 class PortfolioEquity(BaseModel):
-    type: AssetType = Field(
+    type: LenientAssetType = Field(
         ...,
         description="Type of asset.",
     )
@@ -87,7 +93,7 @@ class PortfolioEquity(BaseModel):
 class PortfolioInstrument(BaseModel):
     symbol: str = Field(...)
     name: str = Field(...)
-    type: InstrumentType = Field(...)
+    type: LenientInstrumentType = Field(...)
 
 
 class Price(BaseModel):
@@ -229,7 +235,7 @@ class Portfolio(BaseModel):
     model_config = {"populate_by_name": True}
 
     account_id: str = Field(..., alias="accountId")
-    account_type: AccountType = Field(..., alias="accountType")
+    account_type: LenientAccountType = Field(..., alias="accountType")
     buying_power: BuyingPower = Field(..., alias="buyingPower")
     equity: List[PortfolioEquity] = Field(..., description="List of equity summaries")
     positions: List[PortfolioPosition] = Field(...)

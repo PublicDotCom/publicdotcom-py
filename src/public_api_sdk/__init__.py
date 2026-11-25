@@ -103,6 +103,8 @@ from .models import (
     OrderType,
     OrderUpdate,
     OrderV2,
+    OrderResponseInstrument,
+    LegResponseInstrument,
     OutOfDateStatus,
     OutOfDateStatusDescription,
     OutOfDateStatusType,
@@ -145,6 +147,9 @@ from .models import (
     TakeProfit,
     TimeInForce,
     Trade,
+    TrailingStop,
+    TrailingStopType,
+    TRAILING_STOP_ORDER_TYPES,
     Trading,
     TradingPermission,
     TreasurySubtype,
@@ -181,7 +186,7 @@ from .short_order import AsyncFlattenAndShortResult, FlattenAndShortResult
 from .strategy_preflight import StrategyPreflight
 from .subscription_manager import PriceSubscriptionManager
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     # Historic data
@@ -269,9 +274,14 @@ __all__ = [
     "OrderResult",
     "OrderStatus",
     "OrderV2",
+    "OrderResponseInstrument",
+    "LegResponseInstrument",
     "OrderMarketSession",
     "OrderSearchRequest",
     "Trade",
+    "TrailingStop",
+    "TrailingStopType",
+    "TRAILING_STOP_ORDER_TYPES",
     "GatewayTaxLotMatchingInstruction",
     "PriceIncrement",
     "NewOrder",

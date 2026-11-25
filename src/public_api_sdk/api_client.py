@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any, Dict, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 import requests
@@ -138,7 +138,7 @@ class ApiClient:
         else:
             raise APIError(error_message, response.status_code, response_data)
 
-    def _retry_non_safe(self, fn: Any) -> Dict[str, Any]:
+    def _retry_non_safe(self, fn: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
         """Apply application-level retry for ServerError and RateLimitError.
 
         Used by post(), put(), and delete() — methods excluded from urllib3's

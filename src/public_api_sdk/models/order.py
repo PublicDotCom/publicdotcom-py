@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from pydantic import (
@@ -15,7 +15,45 @@ from pydantic import (
     model_validator,
 )
 
+from ._lenient import (
+    LenientInstrumentType,
+    LenientLegInstrumentType,
+    LenientOpenCloseIndicator,
+    LenientOrderSide,
+    LenientOrderType,
+    LenientTimeInForce,
+    LenientTrailingStopType,
+    enum_value,
+)
 from .instrument_type import InstrumentType
+from .order_enums import (
+    EquityMarketSession,
+    LegInstrumentType,
+    OpenCloseIndicator,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+    TrailingStopType,
+)
+
+# The enums above are defined in `order_enums.py` (so `_lenient.py` can use
+# them without a circular import) and re-exported here, their public home.
+
+#: Order types the API reports but never accepts on an order request: it places
+#: trailing stops only as the stop-loss leg of a BRACKET or OTO order.
+TRAILING_STOP_ORDER_TYPES = frozenset(
+    {OrderType.TRAILING_STOP, OrderType.TRAILING_STOP_LIMIT}
+)
+
+
+def _reject_response_only_order_type(order_type: OrderType) -> OrderType:
+    if order_type in TRAILING_STOP_ORDER_TYPES:
+        raise ValueError(
+            f"`order_type` {order_type.value} can't be used on an order request; "
+            "the API places trailing stops only as the stop-loss leg of a "
+            "BRACKET or OTO order"
+        )
+    return order_type
 
 
 def _serialize_order_quantity(
@@ -39,6 +77,11 @@ def _serialize_order_quantity(
 
 class OrderValidationMixin:
     """Mixin class for shared validations between OrderRequest and PreflightRequest."""
+
+    @field_validator("order_type")
+    @classmethod
+    def validate_order_type(cls, v: OrderType) -> OrderType:
+        return _reject_response_only_order_type(v)
 
     @field_validator("quantity")
     @classmethod
@@ -113,52 +156,26 @@ class OrderInstrument(BaseModel):
         return value.value
 
 
-class OrderSide(str, Enum):
-    BUY = "BUY"
-    SELL = "SELL"
+class OrderResponseInstrument(OrderInstrument):
+    """The instrument of an order or trade in a response.
 
-    def __str__(self) -> str:
-        return str(self.value)
+    Same as :class:`OrderInstrument`, but an instrument type the SDK does not
+    know yet is kept as its raw string instead of failing validation.
+    """
 
+    model_config = {"from_attributes": True}  # still accepts an OrderInstrument
 
-class OrderType(str, Enum):
-    MARKET = "MARKET"
-    LIMIT = "LIMIT"
-    STOP = "STOP"
-    STOP_LIMIT = "STOP_LIMIT"
-    MARKET_ON_CLOSE = "MARKET_ON_CLOSE"
-    LIMIT_ON_CLOSE = "LIMIT_ON_CLOSE"
+    type: LenientInstrumentType = Field(...)  # type: ignore[assignment]
 
-    def __str__(self) -> str:
-        return str(self.value)
+    @field_serializer("type")
+    def serialize_type(self, value: Union[InstrumentType, str]) -> str:
+        return enum_value(value)
 
-
-class TimeInForce(str, Enum):
-    DAY = "DAY"
-    GTD = "GTD"
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-class OpenCloseIndicator(str, Enum):
-    OPEN = "OPEN"
-    CLOSE = "CLOSE"
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-class EquityMarketSession(str, Enum):
-    CORE = "CORE"
-    EXTENDED = "EXTENDED"
-    TWENTY_FOUR_HOURS = "TWENTY_FOUR_HOURS"
-
-    def __str__(self) -> str:
-        return str(self.value)
 
 class OrderExpiration(BaseModel):
-    time_in_force: TimeInForce = Field(..., alias="timeInForce")
+    """The expiration of an order in a response (lenient)."""
+
+    time_in_force: LenientTimeInForce = Field(..., alias="timeInForce")
     expiration_time: Optional[datetime] = Field(None, alias="expirationTime")
 
 
@@ -587,9 +604,12 @@ class StopLoss(BaseModel):
     Placed as a ``STOP`` order when only ``stop_price`` is present, or as a
     ``STOP_LIMIT`` order when ``limit_price`` is also present.
 
-    The API documents ``stopPrice`` as optional for *trailing* stop-losses, but
-    the spec does not yet define the trailing fields, so ``stop_price`` stays
-    required here until it does.
+    The API also accepts a *trailing* stop-loss (``stopLoss.trailingStop``, with
+    ``stopPrice`` then optional), which it reports back as a ``TRAILING_STOP``
+    or ``TRAILING_STOP_LIMIT`` order. Responses carry the trail
+    (:attr:`Order.trailing_stop`, :attr:`Order.high_watermark`), but the spec
+    does not define the request fields yet, so this model can't place a
+    trailing stop and ``stop_price`` stays required until it does.
     """
 
     model_config = {"populate_by_name": True}
@@ -775,9 +795,8 @@ class OrderRequest(OrderValidationMixin, BaseModel):
         requires is left to the API, so the SDK never rejects a request the
         backend would have accepted.
         """
-        is_bracket = self.order_class in BRACKET_ORDER_CLASSES
-
-        if not is_bracket:
+        order_class = self.order_class
+        if order_class is None or order_class not in BRACKET_ORDER_CLASSES:
             if self.take_profit is not None or self.stop_loss is not None:
                 raise ValueError(
                     "`take_profit` and `stop_loss` require `order_class` to be one "
@@ -787,7 +806,7 @@ class OrderRequest(OrderValidationMixin, BaseModel):
 
         if self.take_profit is None and self.stop_loss is None:
             raise ValueError(
-                f"`order_class` {self.order_class.value} requires at least one of "
+                f"`order_class` {order_class.value} requires at least one of "
                 "`take_profit` or `stop_loss`"
             )
 
@@ -818,13 +837,13 @@ class OrderRequest(OrderValidationMixin, BaseModel):
 
         allowed_types = (
             (OrderType.LIMIT,)
-            if self.order_class == OrderClass.OCO
+            if order_class == OrderClass.OCO
             else (OrderType.LIMIT, OrderType.MARKET)
         )
         if self.order_type not in allowed_types:
             allowed = " or ".join(t.value for t in allowed_types)
             raise ValueError(
-                f"the entry order type for order class {self.order_class.value} "
+                f"the entry order type for order class {order_class.value} "
                 f"must be {allowed}, not {self.order_type.value}"
             )
 
@@ -952,6 +971,11 @@ class CancelAndReplaceRequest(BaseModel):
         description="The stop price. Required when orderType is STOP or STOP_LIMIT.",
     )
 
+    @field_validator("order_type")
+    @classmethod
+    def validate_order_type(cls, v: OrderType) -> OrderType:
+        return _reject_response_only_order_type(v)
+
     @model_validator(mode="after")
     def validate_quantity_amount_exclusive(self) -> "CancelAndReplaceRequest":
         if self.quantity is not None and self.amount is not None:
@@ -1013,23 +1037,25 @@ class OrderStatus(str, Enum):
         return str(self.value)
 
 
-class LegInstrumentType(str, Enum):
-    EQUITY = "EQUITY"
-    OPTION = "OPTION"
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
 class LegInstrument(BaseModel):
     symbol: str = Field(...)
     type: LegInstrumentType = Field(...)
 
 
+class LegResponseInstrument(LegInstrument):
+    """The instrument of an order leg in a response (lenient)."""
+
+    model_config = {"from_attributes": True}  # still accepts a LegInstrument
+
+    type: LenientLegInstrumentType = Field(...)  # type: ignore[assignment]
+
+
 class OrderLeg(BaseModel):
-    instrument: LegInstrument = Field(...)
-    side: OrderSide = Field(...)
-    open_close_indicator: Optional[OpenCloseIndicator] = Field(
+    """A leg of a multi-leg order in a response (lenient)."""
+
+    instrument: LegResponseInstrument = Field(...)
+    side: LenientOrderSide = Field(...)
+    open_close_indicator: Optional[LenientOpenCloseIndicator] = Field(
         None,
         alias="openCloseIndicator",
         description=(
@@ -1047,7 +1073,37 @@ class OrderLeg(BaseModel):
     )
 
 
+class TrailingStop(BaseModel):
+    """The trail of a ``TRAILING_STOP`` or ``TRAILING_STOP_LIMIT`` order."""
+
+    model_config = {"populate_by_name": True}
+
+    type: Optional[LenientTrailingStopType] = Field(
+        None, description="AMOUNT or PERCENTAGE"
+    )
+    value: Optional[Decimal] = Field(
+        None,
+        description=(
+            "The trail: a dollar amount, or for PERCENTAGE a fraction (0.05 is 5%)"
+        ),
+    )
+    limit_offset: Optional[Decimal] = Field(
+        None,
+        alias="limitOffset",
+        description=(
+            "For TRAILING_STOP_LIMIT: how far the limit price sits from the stop price"
+        ),
+    )
+
+
 class Order(BaseModel):
+    """An order in a response.
+
+    Enum fields are lenient: a value the SDK does not know yet (a new order
+    type, side, time in force...) is kept as its raw string instead of
+    failing the whole response. Known values are enum members as before.
+    """
+
     model_config = {"populate_by_name": True}
 
     order_id: str = Field(
@@ -1065,10 +1121,10 @@ class Order(BaseModel):
             "share this id. None for standalone (non-bracket) orders."
         ),
     )
-    instrument: OrderInstrument = Field(...)
+    instrument: OrderResponseInstrument = Field(...)
     created_at: Optional[datetime] = Field(None, alias="createdAt")
-    type: OrderType = Field(...)
-    side: OrderSide = Field(...)
+    type: LenientOrderType = Field(...)
+    side: LenientOrderSide = Field(...)
     status: OrderStatus = Field(...)
     quantity: Optional[Decimal] = Field(
         None,
@@ -1082,6 +1138,16 @@ class Order(BaseModel):
     expiration: Optional[OrderExpiration] = Field(None)
     limit_price: Optional[Decimal] = Field(None, alias="limitPrice")
     stop_price: Optional[Decimal] = Field(None, alias="stopPrice")
+    trailing_stop: Optional[TrailingStop] = Field(
+        None,
+        alias="trailingStop",
+        description="For TRAILING_STOP and TRAILING_STOP_LIMIT orders: the trail",
+    )
+    high_watermark: Optional[Decimal] = Field(
+        None,
+        alias="highWatermark",
+        description="For trailing stops: the best price the stop currently trails",
+    )
     closed_at: Optional[datetime] = Field(
         None,
         alias="closedAt",
@@ -1090,7 +1156,7 @@ class Order(BaseModel):
             "REJECTED, REPLACED"
         ),
     )
-    open_close_indicator: Optional[OpenCloseIndicator] = Field(
+    open_close_indicator: Optional[LenientOpenCloseIndicator] = Field(
         None,
         alias="openCloseIndicator",
         description="Present if the order is a single-leg option order",
@@ -1145,10 +1211,10 @@ class Trade(BaseModel):
 
     model_config = {"populate_by_name": True}
 
-    instrument: OrderInstrument = Field(...)
+    instrument: OrderResponseInstrument = Field(...)
     quantity: Optional[Decimal] = Field(None, description="Quantity filled by this trade")
     price: Optional[Decimal] = Field(None, description="Execution price per unit")
-    side: Optional[OrderSide] = Field(None)
+    side: Optional[LenientOrderSide] = Field(None)
     trade_id: Optional[str] = Field(
         None,
         validation_alias=AliasChoices("trade_id", "tradeId"),
